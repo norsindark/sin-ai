@@ -40,5 +40,6 @@ src/main/resources/application.yaml
 CLAUDE.md
 .env
 .env.*
+!.env.example
 .claude/settings.local.json
 .claude/

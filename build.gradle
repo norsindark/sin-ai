@@ -1,0 +1,41 @@
+plugins {
+	id 'java'
+	alias(libs.plugins.spring.boot)
+	alias(libs.plugins.spring.dependency.management)
+}
+
+group = 'com'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(27)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	implementation libs.spring.boot.starter.actuator
+	implementation libs.spring.boot.starter.data.jpa
+	implementation libs.spring.boot.starter.security
+	implementation libs.spring.boot.starter.validation
+	implementation libs.spring.boot.starter.webmvc
+	compileOnly libs.lombok
+	runtimeOnly libs.postgresql
+	annotationProcessor libs.lombok
+	testImplementation libs.spring.boot.starter.actuator.test
+	testImplementation libs.spring.boot.starter.data.jpa.test
+	testImplementation libs.spring.boot.starter.security.test
+	testImplementation libs.spring.boot.starter.validation.test
+	testImplementation libs.spring.boot.starter.webmvc.test
+	testCompileOnly libs.lombok
+	testRuntimeOnly libs.junit.platform.launcher
+	testAnnotationProcessor libs.lombok
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}

@@ -1,8 +1,0 @@
-# Copy this file to application.yaml (git-ignored) and adjust the values.
-spring:
-  application:
-    name: sin-ai
-  datasource:
-    url: ${SIN_AI_DB_URL:jdbc:postgresql://localhost:5432/sin_ai}
-    username: ${SIN_AI_DB_USER:sin_ai}
-    password: ${SIN_AI_DB_PASSWORD}

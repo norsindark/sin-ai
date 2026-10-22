@@ -36,10 +36,13 @@ out/
 
 build/
 .idea/
-src/main/resources/application.yaml
+app/src/main/resources/application-local.yml
 CLAUDE.md
 .env
 .env.*
 !.env.example
 .claude/settings.local.json
 .claude/
+
+# Local uploads
+data/

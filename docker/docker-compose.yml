@@ -1,0 +1,102 @@
+name: sin-ai
+
+volumes:
+  postgres-data:
+  storage-data:
+  ollama-models:
+  whisper-models:
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    env_file: ./postgres/postgres.env
+    environment:
+      POSTGRES_PASSWORD: ${SIN_AI_DB_PASSWORD:?}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sinai -d sinai"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  storage:
+    image: quay.io/minio/aistor/minio:RELEASE.2026-09-19T17-05-25Z
+    command: server /data --console-address ":9001"
+    env_file: ./minio/minio.env
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${STORAGE_ROOT_PASSWORD:?}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${STORAGE_CORS_ORIGIN:?}
+      MINIO_LICENSE: ${MINIO_LICENSE:?}
+    ports:
+      - "127.0.0.1:${STORAGE_API_PORT:-9000}:9000"
+      - "127.0.0.1:${STORAGE_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - storage-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  storage-init:
+    image: quay.io/minio/aistor/mc:RELEASE.2026-09-19T15-24-59Z
+    entrypoint: ["/bin/sh", "/init-storage.sh"]
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${STORAGE_ROOT_PASSWORD:?}
+      STORAGE_APP_ACCESS_KEY: ${STORAGE_APP_ACCESS_KEY:?}
+      STORAGE_APP_SECRET_KEY: ${STORAGE_APP_SECRET_KEY:?}
+      STORAGE_RAW_BUCKET: ${STORAGE_RAW_BUCKET:-raw-videos}
+      STORAGE_PROCESSED_BUCKET: ${STORAGE_PROCESSED_BUCKET:-processed-videos}
+    volumes:
+      - ./minio/init-storage.sh:/init-storage.sh:ro
+    depends_on:
+      storage:
+        condition: service_healthy
+    restart: "no"
+
+  whisper:
+    image: ghcr.io/speaches-ai/speaches:0.8.3-cpu
+    profiles: [ai]
+    ports:
+      - "127.0.0.1:${WHISPER_PORT:-8000}:8000"
+    volumes:
+      - whisper-models:/home/ubuntu/.cache/huggingface/hub
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:0.40.8
+    profiles: [ai]
+    env_file: ./ai/ai.env
+    ports:
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  ollama-init:
+    image: ollama/ollama:0.40.8
+    profiles: [ai]
+    entrypoint: ["/bin/sh", "-c", "ollama pull $${OLLAMA_MODEL}"]
+    environment:
+      OLLAMA_HOST: ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:?}
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"

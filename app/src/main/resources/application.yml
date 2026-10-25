@@ -1,6 +1,28 @@
 spring:
   application:
     name: sin-ai
+  datasource:
+    url: jdbc:postgresql://localhost:${POSTGRES_PORT:5432}/sinai
+    username: sinai
+    password: ${SIN_AI_DB_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    locations: classpath:db/migration
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 510MB
+
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
 
 sinai:
   storage:
@@ -23,3 +45,5 @@ sinai:
       model: ${OLLAMA_MODEL:qwen2.5:3b}
       timeout: 5m
       batch-size: 20
+  workflow:
+    download-url-expiry: 1h

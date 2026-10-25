@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.sinai.common.exception.ErrorCode;
 import com.sinai.common.exception.SinAiException;
+import com.sinai.storage.config.StorageConfig;
+import com.sinai.storage.config.StorageProperties;
 import io.minio.MinioClient;
 import io.minio.RemoveObjectArgs;
 import java.net.InetSocketAddress;
@@ -77,6 +79,27 @@ class MinioObjectStorageIntegrationTest {
         assertThat(Files.readString(downloaded, StandardCharsets.UTF_8)).isEqualTo(content);
 
         var url = storage.presignedGetUrl(bucket, key, Duration.ofMinutes(5));
+        var response = HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create(url)).GET().build(),
+                HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body()).isEqualTo(content);
+    }
+
+    @Test
+    void presignedUrlFromPublicEndpointIsValidForBrowserHost() throws Exception {
+        var port = StringUtils.defaultIfBlank(System.getenv("STORAGE_API_PORT"), "9000");
+        var properties = new StorageProperties("http://127.0.0.1:" + port, System.getenv("STORAGE_APP_ACCESS_KEY"),
+                System.getenv("STORAGE_APP_SECRET_KEY"), bucket, bucket, "us-east-1", "http://localhost:" + port);
+        var config = new StorageConfig();
+        var publicStorage = new MinioObjectStorage(config.minioClient(properties),
+                config.presignMinioClient(properties));
+        var content = "public endpoint";
+        publicStorage.upload(bucket, key, Files.writeString(tempDir.resolve("public.txt"), content), "text/plain");
+
+        var url = publicStorage.presignedGetUrl(bucket, key, Duration.ofMinutes(5));
+
+        assertThat(URI.create(url).getHost()).isEqualTo("localhost");
         var response = HttpClient.newHttpClient().send(
                 HttpRequest.newBuilder(URI.create(url)).GET().build(),
                 HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));

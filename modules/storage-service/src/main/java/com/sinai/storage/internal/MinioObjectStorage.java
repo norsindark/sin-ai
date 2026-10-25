@@ -3,6 +3,7 @@ package com.sinai.storage.internal;
 import com.sinai.common.exception.ErrorCode;
 import com.sinai.common.exception.SinAiException;
 import com.sinai.storage.api.ObjectStorage;
+import com.sinai.storage.config.PresignMinioClient;
 import io.minio.DownloadObjectArgs;
 import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MinioClient;
@@ -12,17 +13,28 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Objects;
-import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
-@RequiredArgsConstructor
 public class MinioObjectStorage implements ObjectStorage {
 
     private static final Duration MAX_PRESIGN_EXPIRY = Duration.ofDays(7);
 
     private final MinioClient minioClient;
+    private final MinioClient presignClient;
+
+    public MinioObjectStorage(MinioClient minioClient) {
+        this.minioClient = minioClient;
+        this.presignClient = minioClient;
+    }
+
+    @Autowired
+    public MinioObjectStorage(MinioClient minioClient, PresignMinioClient presignMinioClient) {
+        this.minioClient = minioClient;
+        this.presignClient = presignMinioClient.client();
+    }
 
     @Override
     public void upload(String bucket, String key, Path file, String contentType) {
@@ -78,7 +90,7 @@ public class MinioObjectStorage implements ObjectStorage {
             throw new SinAiException(ErrorCode.INVALID_ARGUMENT, "expiry must not exceed " + MAX_PRESIGN_EXPIRY);
         }
         try {
-            return minioClient.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
+            return presignClient.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
                     .method(Method.GET)
                     .bucket(bucket)
                     .object(key)

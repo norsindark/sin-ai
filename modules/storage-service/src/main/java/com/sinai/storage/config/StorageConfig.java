@@ -10,6 +10,8 @@ import org.springframework.context.annotation.Configuration;
 @EnableConfigurationProperties(StorageProperties.class)
 public class StorageConfig {
 
+    static final String DEFAULT_REGION = "us-east-1";
+
     @Bean
     public MinioClient minioClient(StorageProperties properties) {
         var builder = MinioClient.builder()
@@ -19,5 +21,15 @@ public class StorageConfig {
             builder.region(properties.region());
         }
         return builder.build();
+    }
+
+    @Bean
+    public PresignMinioClient presignMinioClient(StorageProperties properties) {
+        var client = MinioClient.builder()
+                .endpoint(StringUtils.defaultIfBlank(properties.publicEndpoint(), properties.endpoint()))
+                .credentials(properties.accessKey(), properties.secretKey())
+                .region(StringUtils.defaultIfBlank(properties.region(), DEFAULT_REGION))
+                .build();
+        return new PresignMinioClient(client);
     }
 }

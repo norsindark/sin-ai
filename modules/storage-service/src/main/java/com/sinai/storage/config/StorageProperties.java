@@ -9,5 +9,6 @@ public record StorageProperties(
         String secretKey,
         String rawBucket,
         String processedBucket,
-        String region) {
+        String region,
+        String publicEndpoint) {
 }

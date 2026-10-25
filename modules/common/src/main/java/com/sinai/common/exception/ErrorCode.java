@@ -6,6 +6,9 @@ import lombok.Getter;
 public enum ErrorCode {
     INTERNAL_ERROR(500, "Internal error"),
     INVALID_ARGUMENT(400, "Invalid argument"),
+    NOT_FOUND(404, "Resource not found"),
+    JOB_NOT_FOUND(404, "Job not found"),
+    FILE_TOO_LARGE(413, "File too large"),
     UNSUPPORTED_LANGUAGE(400, "Unsupported language"),
     UNSUPPORTED_FILE_TYPE(400, "Unsupported file type"),
     INVALID_SUBTITLE_SEGMENT(400, "Invalid subtitle segment"),

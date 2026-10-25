@@ -64,6 +64,39 @@ services:
         condition: service_healthy
     restart: "no"
 
+  app:
+    build:
+      context: ..
+      dockerfile: docker/app/Dockerfile
+    image: sin-ai-app:local
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/sinai
+      SIN_AI_DB_PASSWORD: ${SIN_AI_DB_PASSWORD:?}
+      SINAI_STORAGE_ENDPOINT: http://storage:9000
+      SINAI_STORAGE_PUBLICENDPOINT: http://localhost:${STORAGE_API_PORT:-9000}
+      STORAGE_APP_ACCESS_KEY: ${STORAGE_APP_ACCESS_KEY:?}
+      STORAGE_APP_SECRET_KEY: ${STORAGE_APP_SECRET_KEY:?}
+      STORAGE_RAW_BUCKET: ${STORAGE_RAW_BUCKET:-raw-videos}
+      STORAGE_PROCESSED_BUCKET: ${STORAGE_PROCESSED_BUCKET:-processed-videos}
+      SINAI_AI_WHISPER_BASEURL: http://whisper:8000
+      SINAI_AI_OLLAMA_BASEURL: http://ollama:11434
+      WHISPER_MODEL: ${WHISPER_MODEL:?}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:?}
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/v3/api-docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   whisper:
     image: ghcr.io/speaches-ai/speaches:0.8.3-cpu
     profiles: [ai]

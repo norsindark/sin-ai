@@ -2,6 +2,7 @@ package com.sinai.workflow.model.entity;
 
 import com.sinai.common.constant.JobStatus;
 import com.sinai.common.constant.Language;
+import com.sinai.common.exception.ErrorCode;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -90,5 +91,42 @@ public class SubtitleJob {
             job.translationTasks.add(new TranslationTask(UUID.randomUUID(), job, targetLanguage));
         }
         return job;
+    }
+
+    public void start() {
+        requireStatus(JobStatus.PENDING);
+        status = JobStatus.PROCESSING;
+        startedAt = Instant.now();
+    }
+
+    public void attachSourceSubtitle(String subtitleKey) {
+        requireStatus(JobStatus.PROCESSING);
+        sourceSubtitleKey = subtitleKey;
+    }
+
+    public void complete(String videoKey) {
+        requireStatus(JobStatus.PROCESSING);
+        outputVideoKey = videoKey;
+        status = JobStatus.COMPLETED;
+        completedAt = Instant.now();
+    }
+
+    public void fail(ErrorCode failure) {
+        requireStatus(JobStatus.PROCESSING);
+        status = JobStatus.FAILED;
+        errorCode = failure.name();
+        errorMessage = failure.getDefaultMessage();
+        completedAt = Instant.now();
+        for (var task : translationTasks) {
+            if (!task.getStatus().isTerminal()) {
+                task.fail(failure.getDefaultMessage());
+            }
+        }
+    }
+
+    private void requireStatus(JobStatus expected) {
+        if (status != expected) {
+            throw new IllegalStateException("Job " + id + " is " + status + ", expected " + expected);
+        }
     }
 }

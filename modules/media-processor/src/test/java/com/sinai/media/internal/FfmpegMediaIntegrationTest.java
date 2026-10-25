@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.sinai.common.constant.Language;
 import com.sinai.common.dto.SubtitleSegment;
+import com.sinai.media.api.SubtitleTrack;
 import com.sinai.media.config.MediaProperties;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -49,7 +50,7 @@ class FfmpegMediaIntegrationTest {
                 new SubtitleSegment(1, 0, 900, "Xin chào"),
                 new SubtitleSegment(2, 1000, 1900, "Tạm biệt")), srt);
         var output = tempDir.resolve("merged.mp4");
-        merger.merge(fixture, srt, Language.VIETNAMESE, output);
+        merger.merge(fixture, List.of(new SubtitleTrack(srt, Language.VIETNAMESE)), output);
 
         var subtitleLanguage = probe(output, "-select_streams", "s",
                 "-show_entries", "stream_tags=language", "-of", "csv=p=0");
@@ -59,6 +60,39 @@ class FfmpegMediaIntegrationTest {
                 "-show_entries", "stream=codec_type", "-of", "csv=p=0");
         assertThat(subtitleLanguage).isEqualTo("vie");
         assertThat(videoCodec).isEqualTo("video");
+        assertThat(audioCodec).isEqualTo("audio");
+    }
+
+    @Test
+    void mergesMultipleSubtitleTracksWithLanguageTags() {
+        Assumptions.assumeTrue(isRunnable("ffmpeg"), "ffmpeg is not available");
+        Assumptions.assumeTrue(isRunnable("ffprobe"), "ffprobe is not available");
+        var runner = new FfmpegRunner(new MediaProperties("ffmpeg", Duration.ofSeconds(60)));
+        var writer = new SrtSubtitleWriter();
+        var merger = new FfmpegSubtitleMerger(runner);
+        var fixture = tempDir.resolve("fixture.mp4");
+        runner.run(List.of(
+                "-f", "lavfi", "-i", "testsrc=d=2:size=160x120:rate=10",
+                "-f", "lavfi", "-i", "sine=d=2",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-c:a", "aac",
+                "-shortest",
+                fixture.toString()));
+        var tracks = new ArrayList<SubtitleTrack>();
+        for (var language : List.of(Language.ENGLISH, Language.VIETNAMESE, Language.JAPANESE)) {
+            var srt = tempDir.resolve(language.getCode() + ".srt");
+            writer.write(List.of(new SubtitleSegment(1, 0, 900, "Line " + language.getCode())), srt);
+            tracks.add(new SubtitleTrack(srt, language));
+        }
+        var output = tempDir.resolve("multi.mp4");
+
+        merger.merge(fixture, tracks, output);
+
+        var subtitleLanguages = probe(output, "-select_streams", "s",
+                "-show_entries", "stream_tags=language", "-of", "csv=p=0");
+        var audioCodec = probe(output, "-select_streams", "a",
+                "-show_entries", "stream=codec_type", "-of", "csv=p=0");
+        assertThat(subtitleLanguages.lines().toList()).containsExactly("eng", "vie", "jpn");
         assertThat(audioCodec).isEqualTo("audio");
     }
 

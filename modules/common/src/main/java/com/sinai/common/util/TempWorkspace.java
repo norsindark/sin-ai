@@ -77,6 +77,10 @@ public final class TempWorkspace implements AutoCloseable {
         if (!closed.compareAndSet(false, true)) {
             return;
         }
+        deleteRecursively(directory);
+    }
+
+    static void deleteRecursively(Path directory) {
         if (Files.notExists(directory, LinkOption.NOFOLLOW_LINKS)) {
             return;
         }

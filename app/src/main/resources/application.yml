@@ -13,8 +13,9 @@ spring:
     locations: classpath:db/migration
   servlet:
     multipart:
-      max-file-size: 500MB
-      max-request-size: 510MB
+      max-file-size: 10GB
+      max-request-size: 10250MB
+      location: ${sinai.workflow.upload-directory}
 
 springdoc:
   api-docs:
@@ -34,12 +35,12 @@ sinai:
     region: us-east-1
   media:
     ffmpeg-path: ${FFMPEG_PATH:ffmpeg}
-    timeout: 10m
+    timeout: 1h
   ai:
     whisper:
       base-url: http://localhost:${WHISPER_PORT:8000}
       model: ${WHISPER_MODEL:Systran/faster-whisper-small}
-      timeout: 30m
+      timeout: 4h
     ollama:
       base-url: http://localhost:${OLLAMA_PORT:11434}
       model: ${OLLAMA_MODEL:qwen2.5:3b}
@@ -47,3 +48,8 @@ sinai:
       batch-size: 20
   workflow:
     download-url-expiry: 1h
+    temp-directory: ${java.io.tmpdir}/sin-ai
+    upload-directory: ${sinai.workflow.temp-directory}/uploads
+    worker:
+      enabled: true
+      poll-interval: 5s

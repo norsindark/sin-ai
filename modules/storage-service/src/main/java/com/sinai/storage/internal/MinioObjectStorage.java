@@ -7,6 +7,7 @@ import com.sinai.storage.config.PresignMinioClient;
 import io.minio.DownloadObjectArgs;
 import io.minio.GetPresignedObjectUrlArgs;
 import io.minio.MinioClient;
+import io.minio.RemoveObjectArgs;
 import io.minio.UploadObjectArgs;
 import io.minio.http.Method;
 import java.nio.file.Files;
@@ -74,6 +75,19 @@ public class MinioObjectStorage implements ObjectStorage {
                     .build());
         } catch (Exception e) {
             throw new SinAiException(ErrorCode.STORAGE_ERROR, "Failed to download " + bucket + "/" + key, e);
+        }
+    }
+
+    @Override
+    public void delete(String bucket, String key) {
+        requireLocation(bucket, key);
+        try {
+            minioClient.removeObject(RemoveObjectArgs.builder()
+                    .bucket(bucket)
+                    .object(key)
+                    .build());
+        } catch (Exception e) {
+            throw new SinAiException(ErrorCode.STORAGE_ERROR, "Failed to delete " + bucket + "/" + key, e);
         }
     }
 

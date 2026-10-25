@@ -108,6 +108,19 @@ class MinioObjectStorageIntegrationTest {
     }
 
     @Test
+    void deleteRemovesObjectAndIgnoresMissingOne() throws Exception {
+        var source = Files.writeString(tempDir.resolve("delete.txt"), "to be deleted", StandardCharsets.UTF_8);
+        storage.upload(bucket, key, source, "text/plain");
+
+        storage.delete(bucket, key);
+        storage.delete(bucket, key);
+
+        assertThatThrownBy(() -> storage.download(bucket, key, tempDir.resolve("gone.txt")))
+                .isInstanceOfSatisfying(SinAiException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.STORAGE_ERROR));
+    }
+
+    @Test
     void downloadOfMissingObjectFailsWithStorageError() {
         var target = tempDir.resolve("missing.txt");
 

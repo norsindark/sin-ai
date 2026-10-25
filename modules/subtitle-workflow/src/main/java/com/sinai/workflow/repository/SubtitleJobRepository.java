@@ -1,12 +1,15 @@
 package com.sinai.workflow.repository;
 
+import com.sinai.common.constant.JobStatus;
 import com.sinai.workflow.model.entity.SubtitleJob;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.NativeQuery;
 import org.springframework.data.jpa.repository.Query;
 
 public interface SubtitleJobRepository extends JpaRepository<SubtitleJob, UUID> {
@@ -17,4 +20,13 @@ public interface SubtitleJobRepository extends JpaRepository<SubtitleJob, UUID> 
     @Query(value = "SELECT j FROM SubtitleJob j JOIN FETCH j.video",
             countQuery = "SELECT COUNT(j) FROM SubtitleJob j")
     Page<SubtitleJob> findPageWithVideo(Pageable pageable);
+
+    @NativeQuery("SELECT CAST(j.id AS VARCHAR) FROM subtitle_jobs j "
+            + "WHERE j.status = 'PENDING' "
+            + "ORDER BY j.created_at, j.id "
+            + "LIMIT 1 FOR UPDATE SKIP LOCKED")
+    Optional<String> lockNextPendingId();
+
+    @EntityGraph(attributePaths = {"video", "translationTasks"})
+    List<SubtitleJob> findAllByStatus(JobStatus status);
 }

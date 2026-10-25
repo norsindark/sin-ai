@@ -32,6 +32,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.EnumUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -42,6 +43,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class JobService {
@@ -75,7 +77,7 @@ public class JobService {
         }
         var video = new Video(videoId, originalFilename, FileType.VIDEO.getContentType(), file.getSize(),
                 rawBucket, storageKey);
-        var job = jobRepository.save(SubtitleJob.create(video, sourceLanguage, targetLanguages));
+        var job = saveOrDiscardUpload(SubtitleJob.create(video, sourceLanguage, targetLanguages));
         return toResponse(job);
     }
 
@@ -154,6 +156,22 @@ public class JobService {
             }
         }
         return targets;
+    }
+
+    private SubtitleJob saveOrDiscardUpload(SubtitleJob job) {
+        try {
+            return jobRepository.save(job);
+        } catch (RuntimeException e) {
+            var video = job.getVideo();
+            try {
+                objectStorage.delete(video.getStorageBucket(), video.getStorageKey());
+            } catch (RuntimeException deleteFailure) {
+                log.warn("Cannot delete orphaned upload {}/{}", video.getStorageBucket(), video.getStorageKey(),
+                        deleteFailure);
+                e.addSuppressed(deleteFailure);
+            }
+            throw e;
+        }
     }
 
     private static void transfer(MultipartFile file, Path target) {

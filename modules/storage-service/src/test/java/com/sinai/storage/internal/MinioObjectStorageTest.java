@@ -58,6 +58,16 @@ class MinioObjectStorageTest {
     }
 
     @Test
+    void deleteRejectsBlankBucketAndKey() {
+        assertThatThrownBy(() -> storage.delete(" ", "k"))
+                .isInstanceOfSatisfying(SinAiException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.INVALID_ARGUMENT));
+        assertThatThrownBy(() -> storage.delete("b", null))
+                .isInstanceOfSatisfying(SinAiException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.INVALID_ARGUMENT));
+    }
+
+    @Test
     void presignRejectsExpiryBeyondSevenDays() {
         assertThatThrownBy(() -> storage.presignedGetUrl("b", "k", Duration.ofDays(7).plusSeconds(1)))
                 .isInstanceOfSatisfying(SinAiException.class,

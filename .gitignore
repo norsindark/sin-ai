@@ -46,3 +46,7 @@ CLAUDE.md
 
 # Local uploads
 data/
+
+### Archify ###
+.archify/
+scripts/

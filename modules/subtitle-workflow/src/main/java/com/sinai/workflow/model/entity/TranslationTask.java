@@ -64,4 +64,29 @@ public class TranslationTask {
         this.targetLanguage = targetLanguage;
         this.status = JobStatus.PENDING;
     }
+
+    public void start() {
+        requireStatus(JobStatus.PENDING);
+        status = JobStatus.PROCESSING;
+    }
+
+    public void complete(String key) {
+        requireStatus(JobStatus.PROCESSING);
+        subtitleKey = key;
+        status = JobStatus.COMPLETED;
+    }
+
+    public void fail(String message) {
+        if (status.isTerminal()) {
+            throw new IllegalStateException("Translation task " + id + " is already " + status);
+        }
+        status = JobStatus.FAILED;
+        errorMessage = message;
+    }
+
+    private void requireStatus(JobStatus expected) {
+        if (status != expected) {
+            throw new IllegalStateException("Translation task " + id + " is " + status + ", expected " + expected);
+        }
+    }
 }

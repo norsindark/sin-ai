@@ -17,7 +17,9 @@ public enum ErrorCode {
     STORAGE_ERROR(502, "Storage error"),
     MEDIA_PROCESSING_ERROR(500, "Media processing error"),
     TRANSCRIPTION_ERROR(502, "Transcription error"),
-    TRANSLATION_ERROR(502, "Translation error");
+    TRANSLATION_ERROR(502, "Translation error"),
+    NO_SPEECH_DETECTED(422, "No speech detected in the video"),
+    JOB_INTERRUPTED(500, "Job was interrupted before completion");
 
     private final int httpStatus;
     private final String defaultMessage;

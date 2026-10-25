@@ -64,7 +64,7 @@ class JobServiceTest {
         var storageProperties = new StorageProperties("http://localhost:9000", "key", "secret", "raw-videos",
                 "processed-videos", "us-east-1", null);
         service = new JobService(jobRepository, taskRepository, objectStorage, storageProperties,
-                new WorkflowProperties(null), new TempFileManager(workspaceBase));
+                new WorkflowProperties(null, null, null), new TempFileManager(workspaceBase));
         when(jobRepository.save(any(SubtitleJob.class))).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
@@ -113,6 +113,33 @@ class JobServiceTest {
                         e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.STORAGE_ERROR));
         verify(jobRepository, never()).save(any());
         assertThat(workspaceBase).isEmptyDirectory();
+    }
+
+    @Test
+    void createJobDeletesUploadedVideoWhenSaveFails() {
+        var saveFailure = new IllegalStateException("database is down");
+        when(jobRepository.save(any(SubtitleJob.class))).thenThrow(saveFailure);
+
+        assertThatThrownBy(() -> service.createJob(new CreateJobRequest(video("clip.mp4", MP4_BYTES), "en",
+                List.of("vi"))))
+                .isSameAs(saveFailure);
+        var key = ArgumentCaptor.forClass(String.class);
+        verify(objectStorage).upload(eq("raw-videos"), key.capture(), any(Path.class), eq("video/mp4"));
+        verify(objectStorage).delete("raw-videos", key.getValue());
+        assertThat(workspaceBase).isEmptyDirectory();
+    }
+
+    @Test
+    void createJobKeepsSaveFailureWhenCleanupAlsoFails() {
+        var saveFailure = new IllegalStateException("database is down");
+        var deleteFailure = new SinAiException(ErrorCode.STORAGE_ERROR);
+        when(jobRepository.save(any(SubtitleJob.class))).thenThrow(saveFailure);
+        doThrow(deleteFailure).when(objectStorage).delete(anyString(), anyString());
+
+        assertThatThrownBy(() -> service.createJob(new CreateJobRequest(video("clip.mp4", MP4_BYTES), "en",
+                List.of("vi"))))
+                .isSameAs(saveFailure)
+                .hasSuppressedException(deleteFailure);
     }
 
     @ParameterizedTest

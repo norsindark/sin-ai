@@ -36,7 +36,8 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.json.JsonMapper;
 
-@SpringBootTest(properties = "spring.jpa.properties.hibernate.generate_statistics=true")
+@SpringBootTest(properties = {"spring.jpa.properties.hibernate.generate_statistics=true",
+        "sinai.workflow.worker.enabled=false", "sinai.workflow.temp-directory=${java.io.tmpdir}/sin-ai-test"})
 @AutoConfigureMockMvc
 @EnabledIf("infrastructureAvailable")
 class JobFlowIntegrationTest {

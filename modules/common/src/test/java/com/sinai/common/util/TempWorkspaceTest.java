@@ -175,4 +175,56 @@ class TempWorkspaceTest {
         assertThat(Files.notExists(workspace.directory())).isTrue();
         assertThat(outside).exists().hasContent("keep");
     }
+
+    @Test
+    void purgeStaleWorkspacesRemovesOnlyWorkspaceDirectories() throws IOException {
+        var stale = Files.createDirectories(base.resolve("job-" + UUID.randomUUID()).resolve("nested"));
+        Files.writeString(stale.resolve("source.mp4"), "data");
+        var unrelatedDirectory = Files.createDirectories(base.resolve("job-not-a-uuid"));
+        var unrelatedFile = Files.writeString(base.resolve("job-" + UUID.randomUUID()), "keep");
+        var uploads = Files.createDirectories(base.resolve("uploads"));
+
+        var purged = manager().purgeStaleWorkspaces();
+
+        assertThat(purged).containsExactly(stale.getParent());
+        assertThat(stale.getParent()).doesNotExist();
+        assertThat(unrelatedDirectory).isDirectory();
+        assertThat(unrelatedFile).hasContent("keep");
+        assertThat(uploads).isDirectory();
+    }
+
+    @Test
+    void purgeStaleWorkspacesIgnoresMissingBase() {
+        assertThat(new TempFileManager(base.resolve("missing")).purgeStaleWorkspaces()).isEmpty();
+    }
+
+    @Test
+    void purgeDirectoryContentsKeepsDirectoryItself() throws IOException {
+        var uploads = Files.createDirectories(base.resolve("uploads"));
+        Files.writeString(uploads.resolve("upload_1.tmp"), "data");
+        Files.writeString(Files.createDirectories(uploads.resolve("nested")).resolve("upload_2.tmp"), "data");
+
+        var purged = manager().purgeDirectoryContents(uploads);
+
+        assertThat(purged).hasSize(2);
+        assertThat(uploads).isEmptyDirectory();
+        assertThat(manager().purgeDirectoryContents(base.resolve("missing"))).isEmpty();
+    }
+
+    @Test
+    void purgeDirectoryContentsDoesNotFollowSymlinks() throws IOException {
+        var outside = Files.createDirectories(base.resolve("outside"));
+        Files.writeString(outside.resolve("keep.txt"), "keep");
+        var uploads = Files.createDirectories(base.resolve("uploads"));
+        try {
+            Files.createSymbolicLink(uploads.resolve("link"), outside);
+        } catch (IOException | UnsupportedOperationException | SecurityException e) {
+            Assumptions.abort("Symbolic links unavailable");
+        }
+
+        manager().purgeDirectoryContents(uploads);
+
+        assertThat(uploads).isEmptyDirectory();
+        assertThat(outside.resolve("keep.txt")).hasContent("keep");
+    }
 }

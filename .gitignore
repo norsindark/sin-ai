@@ -50,3 +50,6 @@ data/
 ### Archify ###
 .archify/
 scripts/
+
+### Kotlin ###
+build-logic/.kotlin/

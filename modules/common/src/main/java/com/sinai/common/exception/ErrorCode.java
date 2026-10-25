@@ -10,7 +10,9 @@ public enum ErrorCode {
     UNSUPPORTED_FILE_TYPE(400, "Unsupported file type"),
     INVALID_SUBTITLE_SEGMENT(400, "Invalid subtitle segment"),
     INVALID_SRT_TIMESTAMP(400, "Invalid SRT timestamp"),
-    WORKSPACE_IO_ERROR(500, "Workspace I/O error");
+    WORKSPACE_IO_ERROR(500, "Workspace I/O error"),
+    STORAGE_ERROR(502, "Storage error"),
+    MEDIA_PROCESSING_ERROR(500, "Media processing error");
 
     private final int httpStatus;
     private final String defaultMessage;

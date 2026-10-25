@@ -1,6 +1,7 @@
 [versions]
 java = "27"
 lombok = "1.18.48"
+minio = "8.5.17"
 spring-boot = "4.1.1"
 spring-dependency-management = "1.1.7"
 
@@ -22,6 +23,7 @@ spring-boot-gradle-plugin = { module = "org.springframework.boot:spring-boot-gra
 spring-dependency-management-plugin = { module = "io.spring.gradle:dependency-management-plugin", version.ref = "spring-dependency-management" }
 lombok = { module = "org.projectlombok:lombok" }
 postgresql = { module = "org.postgresql:postgresql" }
+minio = { module = "io.minio:minio", version.ref = "minio" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 
 [plugins]

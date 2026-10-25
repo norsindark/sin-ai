@@ -1,0 +1,100 @@
+package com.sinai.storage.internal;
+
+import com.sinai.common.exception.ErrorCode;
+import com.sinai.common.exception.SinAiException;
+import com.sinai.storage.api.ObjectStorage;
+import io.minio.DownloadObjectArgs;
+import io.minio.GetPresignedObjectUrlArgs;
+import io.minio.MinioClient;
+import io.minio.UploadObjectArgs;
+import io.minio.http.Method;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.Objects;
+import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.stereotype.Service;
+
+@Service
+@RequiredArgsConstructor
+public class MinioObjectStorage implements ObjectStorage {
+
+    private static final Duration MAX_PRESIGN_EXPIRY = Duration.ofDays(7);
+
+    private final MinioClient minioClient;
+
+    @Override
+    public void upload(String bucket, String key, Path file, String contentType) {
+        requireLocation(bucket, key);
+        if (Objects.isNull(file)) {
+            throw new SinAiException(ErrorCode.INVALID_ARGUMENT, "file must not be null");
+        }
+        if (!Files.isRegularFile(file)) {
+            throw new SinAiException(ErrorCode.INVALID_ARGUMENT, "File does not exist: " + file);
+        }
+        try {
+            var builder = UploadObjectArgs.builder()
+                    .bucket(bucket)
+                    .object(key)
+                    .filename(file.toString());
+            if (StringUtils.isNotBlank(contentType)) {
+                builder.contentType(contentType);
+            }
+            minioClient.uploadObject(builder.build());
+        } catch (Exception e) {
+            throw new SinAiException(ErrorCode.STORAGE_ERROR, "Failed to upload " + bucket + "/" + key, e);
+        }
+    }
+
+    @Override
+    public void download(String bucket, String key, Path target) {
+        requireLocation(bucket, key);
+        if (Objects.isNull(target)) {
+            throw new SinAiException(ErrorCode.INVALID_ARGUMENT, "target must not be null");
+        }
+        try {
+            Files.deleteIfExists(target);
+            minioClient.downloadObject(DownloadObjectArgs.builder()
+                    .bucket(bucket)
+                    .object(key)
+                    .filename(target.toString())
+                    .build());
+        } catch (Exception e) {
+            throw new SinAiException(ErrorCode.STORAGE_ERROR, "Failed to download " + bucket + "/" + key, e);
+        }
+    }
+
+    @Override
+    public String presignedGetUrl(String bucket, String key, Duration expiry) {
+        requireLocation(bucket, key);
+        if (Objects.isNull(expiry)) {
+            throw new SinAiException(ErrorCode.INVALID_ARGUMENT, "expiry must not be null");
+        }
+        if (expiry.isZero() || expiry.isNegative()) {
+            throw new SinAiException(ErrorCode.INVALID_ARGUMENT, "expiry must be positive");
+        }
+        if (expiry.compareTo(MAX_PRESIGN_EXPIRY) > 0) {
+            throw new SinAiException(ErrorCode.INVALID_ARGUMENT, "expiry must not exceed " + MAX_PRESIGN_EXPIRY);
+        }
+        try {
+            return minioClient.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
+                    .method(Method.GET)
+                    .bucket(bucket)
+                    .object(key)
+                    .expiry((int) expiry.toSeconds())
+                    .build());
+        } catch (Exception e) {
+            throw new SinAiException(ErrorCode.STORAGE_ERROR, "Failed to presign " + bucket + "/" + key, e);
+        }
+    }
+
+    private void requireLocation(String bucket, String key) {
+        if (StringUtils.isBlank(bucket)) {
+            throw new SinAiException(ErrorCode.INVALID_ARGUMENT, "bucket must not be blank");
+        }
+        if (StringUtils.isBlank(key)) {
+            throw new SinAiException(ErrorCode.INVALID_ARGUMENT, "key must not be blank");
+        }
+    }
+}

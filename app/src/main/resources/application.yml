@@ -1,3 +1,15 @@
 spring:
   application:
     name: sin-ai
+
+sinai:
+  storage:
+    endpoint: http://localhost:${STORAGE_API_PORT:9000}
+    access-key: ${STORAGE_APP_ACCESS_KEY}
+    secret-key: ${STORAGE_APP_SECRET_KEY}
+    raw-bucket: ${STORAGE_RAW_BUCKET:raw-videos}
+    processed-bucket: ${STORAGE_PROCESSED_BUCKET:processed-videos}
+    region: us-east-1
+  media:
+    ffmpeg-path: ${FFMPEG_PATH:ffmpeg}
+    timeout: 10m

@@ -73,6 +73,17 @@ services:
       - whisper-models:/home/ubuntu/.cache/huggingface/hub
     restart: unless-stopped
 
+  whisper-init:
+    image: curlimages/curl:8.10.1
+    profiles: [ai]
+    entrypoint: ["/bin/sh", "-c", "curl -fsS --retry 30 --retry-delay 2 --retry-connrefused --max-time 3600 -X POST \"http://whisper:8000/v1/models/$${WHISPER_MODEL}\""]
+    environment:
+      WHISPER_MODEL: ${WHISPER_MODEL:?}
+    depends_on:
+      whisper:
+        condition: service_started
+    restart: "no"
+
   ollama:
     image: ollama/ollama:0.40.8
     profiles: [ai]

@@ -12,7 +12,9 @@ public enum ErrorCode {
     INVALID_SRT_TIMESTAMP(400, "Invalid SRT timestamp"),
     WORKSPACE_IO_ERROR(500, "Workspace I/O error"),
     STORAGE_ERROR(502, "Storage error"),
-    MEDIA_PROCESSING_ERROR(500, "Media processing error");
+    MEDIA_PROCESSING_ERROR(500, "Media processing error"),
+    TRANSCRIPTION_ERROR(502, "Transcription error"),
+    TRANSLATION_ERROR(502, "Translation error");
 
     private final int httpStatus;
     private final String defaultMessage;

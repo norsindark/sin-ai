@@ -12,4 +12,6 @@ public interface ObjectStorage {
     void delete(String bucket, String key);
 
     String presignedGetUrl(String bucket, String key, Duration expiry);
+
+    String presignedGetUrl(String bucket, String key, Duration expiry, String contentDisposition);
 }

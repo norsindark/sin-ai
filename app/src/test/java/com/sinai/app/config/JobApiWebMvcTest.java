@@ -3,11 +3,14 @@ package com.sinai.app.config;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -17,9 +20,11 @@ import com.sinai.common.exception.ErrorCode;
 import com.sinai.common.exception.SinAiException;
 import com.sinai.workflow.controller.JobController;
 import com.sinai.workflow.model.request.CreateJobRequest;
+import com.sinai.workflow.model.request.RenameJobRequest;
 import com.sinai.workflow.model.response.JobResponse;
 import com.sinai.workflow.model.response.PageResponse;
 import com.sinai.workflow.model.response.VideoResponse;
+import com.sinai.workflow.service.JobDeletionService;
 import com.sinai.workflow.service.JobService;
 import java.time.Instant;
 import java.util.List;
@@ -29,6 +34,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -46,6 +52,9 @@ class JobApiWebMvcTest {
 
     @MockitoBean
     private JobService jobService;
+
+    @MockitoBean
+    private JobDeletionService jobDeletionService;
 
     @Test
     void createJobBindsMultipartFieldsAndReturnsCreated() throws Exception {
@@ -153,6 +162,66 @@ class JobApiWebMvcTest {
     }
 
     @Test
+    void renameJobReadsJsonTitle() throws Exception {
+        var job = sampleJob();
+        when(jobService.renameJob(any(), any())).thenReturn(job);
+
+        mockMvc.perform(patch("/api/v1/jobs/{id}", job.id())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"Họp nhóm tuần 3\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.video.title").value("clip"));
+
+        var captor = ArgumentCaptor.forClass(RenameJobRequest.class);
+        verify(jobService).renameJob(eq(job.id()), captor.capture());
+        assertThat(captor.getValue().title()).isEqualTo("Họp nhóm tuần 3");
+    }
+
+    @Test
+    void renameJobRejectsInvalidTitle() throws Exception {
+        when(jobService.renameJob(any(), any()))
+                .thenThrow(new SinAiException(ErrorCode.INVALID_ARGUMENT, "title must not be blank"));
+
+        mockMvc.perform(patch("/api/v1/jobs/{id}", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"  \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_ARGUMENT"));
+    }
+
+    @Test
+    void deleteJobReturnsNoContent() throws Exception {
+        var id = UUID.randomUUID();
+
+        mockMvc.perform(delete("/api/v1/jobs/{id}", id))
+                .andExpect(status().isNoContent());
+
+        verify(jobDeletionService).deleteJob(id);
+    }
+
+    @Test
+    void deleteProcessingJobMapsToConflict() throws Exception {
+        var id = UUID.randomUUID();
+        doThrow(new SinAiException(ErrorCode.JOB_IN_PROGRESS, "Job is still processing: " + id))
+                .when(jobDeletionService).deleteJob(id);
+
+        mockMvc.perform(delete("/api/v1/jobs/{id}", id))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("JOB_IN_PROGRESS"));
+    }
+
+    @Test
+    void deleteUnknownJobMapsTo404() throws Exception {
+        var id = UUID.randomUUID();
+        doThrow(new SinAiException(ErrorCode.JOB_NOT_FOUND, "Job not found: " + id))
+                .when(jobDeletionService).deleteJob(id);
+
+        mockMvc.perform(delete("/api/v1/jobs/{id}", id))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("JOB_NOT_FOUND"));
+    }
+
+    @Test
     void listUsesDefaultPaging() throws Exception {
         when(jobService.listJobs(0, 20)).thenReturn(new PageResponse<>(
                 List.of(), 0, 20, 0, 0));
@@ -166,7 +235,7 @@ class JobApiWebMvcTest {
     private static JobResponse sampleJob() {
         var now = Instant.parse("2026-10-25T00:00:00Z");
         return new JobResponse(UUID.randomUUID(), JobStatus.PENDING, "en",
-                new VideoResponse(UUID.randomUUID(), "clip.mp4", 3), null, null, null, null, now, now, null, null,
+                new VideoResponse(UUID.randomUUID(), "clip.mp4", "clip", 3), null, null, null, null, now, now, null, null,
                 List.of());
     }
 }

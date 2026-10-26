@@ -19,7 +19,8 @@ public enum ErrorCode {
     TRANSCRIPTION_ERROR(502, "Transcription error"),
     TRANSLATION_ERROR(502, "Translation error"),
     NO_SPEECH_DETECTED(422, "No speech detected in the video"),
-    JOB_INTERRUPTED(500, "Job was interrupted before completion");
+    JOB_INTERRUPTED(500, "Job was interrupted before completion"),
+    JOB_IN_PROGRESS(409, "Job is still processing");
 
     private final int httpStatus;
     private final String defaultMessage;

@@ -12,6 +12,7 @@ import com.sinai.workflow.model.entity.SubtitleJob;
 import com.sinai.workflow.model.entity.TranslationTask;
 import com.sinai.workflow.model.entity.Video;
 import com.sinai.workflow.model.request.CreateJobRequest;
+import com.sinai.workflow.model.request.RenameJobRequest;
 import com.sinai.workflow.model.response.JobResponse;
 import com.sinai.workflow.model.response.JobSummaryResponse;
 import com.sinai.workflow.model.response.PageResponse;
@@ -20,6 +21,7 @@ import com.sinai.workflow.model.response.VideoResponse;
 import com.sinai.workflow.repository.SubtitleJobRepository;
 import com.sinai.workflow.repository.TranslationTaskRepository;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -29,15 +31,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import java.util.stream.Collectors;
-import lombok.RequiredArgsConstructor;
+import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
+import lombok.RequiredArgsConstructor;
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.EnumUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.ContentDisposition;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
@@ -88,6 +91,30 @@ public class JobService {
                 .orElseThrow(() -> new SinAiException(ErrorCode.JOB_NOT_FOUND, "Job not found: " + id));
     }
 
+    @Transactional
+    public JobResponse renameJob(UUID id, RenameJobRequest request) {
+        var title = validateTitle(request);
+        var job = jobRepository.findWithDetailsById(id)
+                .orElseThrow(() -> new SinAiException(ErrorCode.JOB_NOT_FOUND, "Job not found: " + id));
+        job.getVideo().rename(title);
+        return toResponse(job);
+    }
+
+    static String validateTitle(RenameJobRequest request) {
+        var title = Objects.isNull(request) ? null : StringUtils.trim(request.title());
+        if (StringUtils.isBlank(title)) {
+            throw new SinAiException(ErrorCode.INVALID_ARGUMENT, "title must not be blank");
+        }
+        if (title.length() > MAX_FILENAME_LENGTH) {
+            throw new SinAiException(ErrorCode.INVALID_ARGUMENT,
+                    "title must not exceed " + MAX_FILENAME_LENGTH + " characters");
+        }
+        if (title.chars().anyMatch(Character::isISOControl)) {
+            throw new SinAiException(ErrorCode.INVALID_ARGUMENT, "title must not contain control characters");
+        }
+        return title;
+    }
+
     @Transactional(readOnly = true)
     public PageResponse<JobSummaryResponse> listJobs(int page, int size) {
         if (page < 0) {
@@ -111,6 +138,7 @@ public class JobService {
                         job.getSourceLanguage().getCode(),
                         targetsByJob.getOrDefault(job.getId(), List.of()),
                         job.getVideo().getOriginalFilename(),
+                        job.getVideo().getTitle(),
                         job.getCreatedAt(),
                         job.getUpdatedAt()))
                 .toList();
@@ -197,17 +225,18 @@ public class JobService {
 
     private JobResponse toResponse(SubtitleJob job) {
         var video = job.getVideo();
+        var title = video.getTitle();
         var translations = job.getTranslationTasks().stream()
-                .map(this::toResponse)
+                .map(task -> toResponse(task, title))
                 .sorted(Comparator.comparing(TranslationTaskResponse::targetLanguage))
                 .toList();
         return new JobResponse(
                 job.getId(),
                 job.getStatus(),
                 job.getSourceLanguage().getCode(),
-                new VideoResponse(video.getId(), video.getOriginalFilename(), video.getSizeBytes()),
-                presignProcessed(job.getSourceSubtitleKey()),
-                presignProcessed(job.getOutputVideoKey()),
+                new VideoResponse(video.getId(), video.getOriginalFilename(), title, video.getSizeBytes()),
+                presignProcessed(job.getSourceSubtitleKey(), subtitleDownloadName(title, job.getSourceLanguage())),
+                presignProcessed(job.getOutputVideoKey(), title + "." + FileType.VIDEO.getExtension()),
                 EnumUtils.getEnum(ErrorCode.class, job.getErrorCode()),
                 job.getErrorMessage(),
                 job.getCreatedAt(),
@@ -217,19 +246,30 @@ public class JobService {
                 translations);
     }
 
-    private TranslationTaskResponse toResponse(TranslationTask task) {
+    private TranslationTaskResponse toResponse(TranslationTask task, String title) {
         return new TranslationTaskResponse(
                 task.getTargetLanguage().getCode(),
                 task.getStatus(),
-                presignProcessed(task.getSubtitleKey()),
+                presignProcessed(task.getSubtitleKey(), subtitleDownloadName(title, task.getTargetLanguage())),
                 task.getErrorMessage());
     }
 
-    private String presignProcessed(String key) {
+    private String presignProcessed(String key, String downloadName) {
         if (StringUtils.isBlank(key)) {
             return null;
         }
         return objectStorage.presignedGetUrl(storageProperties.processedBucket(), key,
-                workflowProperties.downloadUrlExpiry());
+                workflowProperties.downloadUrlExpiry(), attachmentDisposition(downloadName));
+    }
+
+    static String subtitleDownloadName(String title, Language language) {
+        return title + "." + language.getCode() + "." + FileType.SUBTITLE.getExtension();
+    }
+
+    static String attachmentDisposition(String downloadName) {
+        return ContentDisposition.attachment()
+                .filename(downloadName, StandardCharsets.UTF_8)
+                .build()
+                .toString();
     }
 }

@@ -2,13 +2,14 @@ package com.sinai.workflow.api;
 
 import com.sinai.common.dto.ApiErrorResponse;
 import com.sinai.workflow.model.request.CreateJobRequest;
+import com.sinai.workflow.model.request.RenameJobRequest;
 import com.sinai.workflow.model.response.JobResponse;
 import com.sinai.workflow.model.response.JobSummaryResponse;
 import com.sinai.workflow.model.response.PageResponse;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -16,7 +17,9 @@ import java.util.List;
 import java.util.UUID;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -49,6 +52,19 @@ public interface JobApi {
     @ApiResponse(responseCode = "200", description = "Job found")
     @GetMapping(path = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     JobResponse getJob(@PathVariable("id") UUID id);
+
+    @Operation(operationId = "renameJob", summary = "Rename the video of a job; download file names follow the title")
+    @ApiResponse(responseCode = "200", description = "Job renamed")
+    @PatchMapping(path = "/{id}", consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE)
+    JobResponse renameJob(@PathVariable("id") UUID id,
+            @org.springframework.web.bind.annotation.RequestBody RenameJobRequest request);
+
+    @Operation(operationId = "deleteJob", summary = "Delete a job with its video and every generated file",
+            description = "Rejected with 409 JOB_IN_PROGRESS while the job is PROCESSING")
+    @ApiResponse(responseCode = "204", description = "Job deleted")
+    @DeleteMapping(path = "/{id}")
+    ResponseEntity<Void> deleteJob(@PathVariable("id") UUID id);
 
     @Operation(operationId = "listJobs", summary = "List jobs, newest first")
     @ApiResponse(responseCode = "200", description = "Page of jobs")

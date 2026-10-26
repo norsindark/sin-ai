@@ -9,6 +9,8 @@ import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 import org.hibernate.annotations.CreationTimestamp;
 
 @Entity
@@ -22,6 +24,9 @@ public class Video {
 
     @Column(name = "original_filename", nullable = false)
     private String originalFilename;
+
+    @Column(name = "title", nullable = false)
+    private String title;
 
     @Column(name = "content_type", nullable = false)
     private String contentType;
@@ -43,9 +48,19 @@ public class Video {
             String storageKey) {
         this.id = id;
         this.originalFilename = originalFilename;
+        this.title = defaultTitle(originalFilename);
         this.contentType = contentType;
         this.sizeBytes = sizeBytes;
         this.storageBucket = storageBucket;
         this.storageKey = storageKey;
+    }
+
+    public void rename(String newTitle) {
+        title = StringUtils.trim(newTitle);
+    }
+
+    public static String defaultTitle(String filename) {
+        var withoutExtension = StringUtils.trim(Strings.CI.removeEnd(StringUtils.trim(filename), ".mp4"));
+        return StringUtils.defaultIfBlank(withoutExtension, StringUtils.trim(filename));
     }
 }

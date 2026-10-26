@@ -13,6 +13,7 @@ import io.minio.http.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Objects;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +23,7 @@ import org.springframework.stereotype.Service;
 public class MinioObjectStorage implements ObjectStorage {
 
     private static final Duration MAX_PRESIGN_EXPIRY = Duration.ofDays(7);
+    private static final String RESPONSE_CONTENT_DISPOSITION = "response-content-disposition";
 
     private final MinioClient minioClient;
     private final MinioClient presignClient;
@@ -93,6 +95,11 @@ public class MinioObjectStorage implements ObjectStorage {
 
     @Override
     public String presignedGetUrl(String bucket, String key, Duration expiry) {
+        return presignedGetUrl(bucket, key, expiry, null);
+    }
+
+    @Override
+    public String presignedGetUrl(String bucket, String key, Duration expiry, String contentDisposition) {
         requireLocation(bucket, key);
         if (Objects.isNull(expiry)) {
             throw new SinAiException(ErrorCode.INVALID_ARGUMENT, "expiry must not be null");
@@ -109,6 +116,9 @@ public class MinioObjectStorage implements ObjectStorage {
                     .bucket(bucket)
                     .object(key)
                     .expiry((int) expiry.toSeconds())
+                    .extraQueryParams(StringUtils.isBlank(contentDisposition)
+                            ? Map.of()
+                            : Map.of(RESPONSE_CONTENT_DISPOSITION, contentDisposition))
                     .build());
         } catch (Exception e) {
             throw new SinAiException(ErrorCode.STORAGE_ERROR, "Failed to presign " + bucket + "/" + key, e);

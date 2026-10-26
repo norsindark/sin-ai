@@ -2,9 +2,11 @@ package com.sinai.workflow.controller;
 
 import com.sinai.workflow.api.JobApi;
 import com.sinai.workflow.model.request.CreateJobRequest;
+import com.sinai.workflow.model.request.RenameJobRequest;
 import com.sinai.workflow.model.response.JobResponse;
 import com.sinai.workflow.model.response.JobSummaryResponse;
 import com.sinai.workflow.model.response.PageResponse;
+import com.sinai.workflow.service.JobDeletionService;
 import com.sinai.workflow.service.JobService;
 import java.util.List;
 import java.util.UUID;
@@ -19,6 +21,7 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 public class JobController implements JobApi {
 
     private final JobService jobService;
+    private final JobDeletionService jobDeletionService;
 
     @Override
     public ResponseEntity<JobResponse> createJob(MultipartFile file, String sourceLanguage,
@@ -34,6 +37,17 @@ public class JobController implements JobApi {
     @Override
     public JobResponse getJob(UUID id) {
         return jobService.getJob(id);
+    }
+
+    @Override
+    public JobResponse renameJob(UUID id, RenameJobRequest request) {
+        return jobService.renameJob(id, request);
+    }
+
+    @Override
+    public ResponseEntity<Void> deleteJob(UUID id) {
+        jobDeletionService.deleteJob(id);
+        return ResponseEntity.noContent().build();
     }
 
     @Override

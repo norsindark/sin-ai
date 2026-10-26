@@ -17,6 +17,8 @@ public record JobSummaryResponse(
                 arraySchema = @Schema(requiredMode = Schema.RequiredMode.REQUIRED))
         List<String> targetLanguages,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String originalFilename,
+        @Schema(requiredMode = Schema.RequiredMode.REQUIRED, description = "Display name chosen by the user")
+        String title,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) Instant createdAt,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) Instant updatedAt) {
 }

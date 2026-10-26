@@ -1,8 +1,10 @@
 package com.sinai.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -13,9 +15,15 @@ import com.sinai.storage.config.StorageProperties;
 import com.sinai.workflow.repository.SubtitleJobRepository;
 import io.minio.MinioClient;
 import io.minio.RemoveObjectArgs;
+import io.minio.StatObjectArgs;
 import jakarta.persistence.EntityManagerFactory;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -31,6 +39,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
@@ -71,6 +81,7 @@ class JobFlowIntegrationTest {
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
     private final List<UUID> createdJobIds = new ArrayList<>();
     private final List<String> createdObjectKeys = new ArrayList<>();
+    private final List<String> createdProcessedKeys = new ArrayList<>();
 
     static boolean infrastructureAvailable() {
         var required = List.of("SIN_AI_DB_PASSWORD", "STORAGE_APP_ACCESS_KEY", "STORAGE_APP_SECRET_KEY");
@@ -90,12 +101,20 @@ class JobFlowIntegrationTest {
                     .object(key)
                     .build());
         }
+        for (var key : createdProcessedKeys) {
+            minioClient.removeObject(RemoveObjectArgs.builder()
+                    .bucket(storageProperties.processedBucket())
+                    .object(key)
+                    .build());
+        }
         for (var jobId : createdJobIds) {
-            var videoId = jdbcTemplate.queryForObject(
+            var videoIds = jdbcTemplate.queryForList(
                     "SELECT CAST(video_id AS VARCHAR) FROM subtitle_jobs WHERE id = CAST(? AS UUID)", String.class,
                     jobId.toString());
             jdbcTemplate.update("DELETE FROM subtitle_jobs WHERE id = CAST(? AS UUID)", jobId.toString());
-            jdbcTemplate.update("DELETE FROM videos WHERE id = CAST(? AS UUID)", videoId);
+            for (var videoId : videoIds) {
+                jdbcTemplate.update("DELETE FROM videos WHERE id = CAST(? AS UUID)", videoId);
+            }
         }
     }
 
@@ -175,6 +194,92 @@ class JobFlowIntegrationTest {
     }
 
     @Test
+    void renameKeepsOriginalFilenameAndNamesDownloadsAfterTitle() throws Exception {
+        var jobId = createJob("lecture.mp4", "en", "vi");
+        var subtitleKey = "jobs/" + jobId + "/subtitles/en.srt";
+        uploadProcessed(subtitleKey, "1\n00:00:00,000 --> 00:00:01,000\nHello\n");
+        jdbcTemplate.update("UPDATE subtitle_jobs SET status = 'PROCESSING', started_at = now(), "
+                + "source_subtitle_key = ? WHERE id = CAST(? AS UUID)", subtitleKey, jobId.toString());
+
+        var body = mockMvc.perform(patch("/api/v1/jobs/{id}", jobId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"  Họp nhóm tuần 3  \"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.video.title").value("Họp nhóm tuần 3"))
+                .andExpect(jsonPath("$.video.originalFilename").value("lecture.mp4"))
+                .andReturn().getResponse().getContentAsString();
+
+        var subtitleUrl = jsonMapper.readTree(body).path("sourceSubtitleUrl").asString();
+        var response = HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(subtitleUrl)).build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(200);
+        var disposition = ContentDisposition.parse(response.headers().firstValue("Content-Disposition").orElseThrow());
+        assertThat(disposition.isAttachment()).isTrue();
+        assertThat(disposition.getFilename()).isEqualTo("Họp nhóm tuần 3.en.srt");
+        assertThat(jobRepository.findWithDetailsById(jobId).orElseThrow().getVersion()).isZero();
+
+        mockMvc.perform(get("/api/v1/jobs").param("size", "100"))
+                .andExpect(jsonPath("$.items[?(@.id == '" + jobId + "')].title").value("Họp nhóm tuần 3"));
+    }
+
+    @Test
+    void renameRejectsBlankTitle() throws Exception {
+        var jobId = createJob("blank.mp4", "en", "vi");
+
+        mockMvc.perform(patch("/api/v1/jobs/{id}", jobId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"   \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_ARGUMENT"));
+    }
+
+    @Test
+    void deleteRemovesRowsAndEveryStoredObject() throws Exception {
+        var jobId = createJob("delete-me.mp4", "en", "vi", "ja");
+        var job = jobRepository.findWithDetailsById(jobId).orElseThrow();
+        var videoId = job.getVideo().getId().toString();
+        var rawKey = job.getVideo().getStorageKey();
+        var processedKeys = List.of("jobs/" + jobId + "/output.mp4", "jobs/" + jobId + "/subtitles/en.srt",
+                "jobs/" + jobId + "/subtitles/vi.srt", "jobs/" + jobId + "/subtitles/ja.srt");
+        for (var key : processedKeys) {
+            uploadProcessed(key, "content of " + key);
+        }
+
+        mockMvc.perform(delete("/api/v1/jobs/{id}", jobId))
+                .andExpect(status().isNoContent());
+
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM subtitle_jobs WHERE id = CAST(? AS UUID)",
+                Long.class, jobId.toString())).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM translation_tasks WHERE job_id = CAST(? AS UUID)", Long.class,
+                jobId.toString())).isZero();
+        assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM videos WHERE id = CAST(? AS UUID)",
+                Long.class, videoId)).isZero();
+        assertThat(objectExists(storageProperties.rawBucket(), rawKey)).isFalse();
+        for (var key : processedKeys) {
+            assertThat(objectExists(storageProperties.processedBucket(), key)).as(key).isFalse();
+        }
+        mockMvc.perform(get("/api/v1/jobs/{id}", jobId))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void deleteIsRejectedWhileProcessingAndUnknownJobIsNotFound() throws Exception {
+        var jobId = createJob("busy.mp4", "en", "vi");
+        jdbcTemplate.update("UPDATE subtitle_jobs SET status = 'PROCESSING', started_at = now() "
+                + "WHERE id = CAST(? AS UUID)", jobId.toString());
+
+        mockMvc.perform(delete("/api/v1/jobs/{id}", jobId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("JOB_IN_PROGRESS"));
+        assertThat(jobRepository.findById(jobId)).isPresent();
+
+        mockMvc.perform(delete("/api/v1/jobs/{id}", UUID.randomUUID()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("JOB_NOT_FOUND"));
+    }
+
+    @Test
     void openApiDocumentsMultipartContractWithLanguageCodes() throws Exception {
         var body = mockMvc.perform(get("/v3/api-docs"))
                 .andExpect(status().isOk())
@@ -210,6 +315,21 @@ class JobFlowIntegrationTest {
         createdJobIds.add(jobId);
         createdObjectKeys.add(jobRepository.findWithDetailsById(jobId).orElseThrow().getVideo().getStorageKey());
         return jobId;
+    }
+
+    private void uploadProcessed(String key, String content) throws Exception {
+        var file = Files.writeString(tempDir.resolve(UUID.randomUUID() + ".tmp"), content, StandardCharsets.UTF_8);
+        objectStorage.upload(storageProperties.processedBucket(), key, file, "application/octet-stream");
+        createdProcessedKeys.add(key);
+    }
+
+    private boolean objectExists(String bucket, String key) {
+        try {
+            minioClient.statObject(StatObjectArgs.builder().bucket(bucket).object(key).build());
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static boolean isReachable(int port) {

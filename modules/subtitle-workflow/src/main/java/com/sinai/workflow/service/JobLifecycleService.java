@@ -1,11 +1,14 @@
 package com.sinai.workflow.service;
 
 import com.sinai.common.constant.JobStatus;
+import com.sinai.common.constant.Language;
 import com.sinai.common.exception.ErrorCode;
+import com.sinai.common.exception.SinAiException;
 import com.sinai.workflow.model.entity.SubtitleJob;
 import com.sinai.workflow.model.entity.TranslationTask;
 import com.sinai.workflow.repository.SubtitleJobRepository;
 import com.sinai.workflow.repository.TranslationTaskRepository;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -65,6 +68,26 @@ public class JobLifecycleService {
     @Transactional
     public void fail(UUID jobId, ErrorCode failure) {
         loadJob(jobId).fail(failure);
+    }
+
+    @Transactional
+    public DeletedJob deleteJob(UUID jobId) {
+        var job = jobRepository.findForUpdateById(jobId)
+                .orElseThrow(() -> new SinAiException(ErrorCode.JOB_NOT_FOUND, "Job not found: " + jobId));
+        if (job.getStatus() == JobStatus.PROCESSING) {
+            throw new SinAiException(ErrorCode.JOB_IN_PROGRESS, "Job is still processing: " + jobId);
+        }
+        var video = job.getVideo();
+        var subtitleLanguages = new ArrayList<Language>();
+        subtitleLanguages.add(job.getSourceLanguage());
+        job.getTranslationTasks().stream()
+                .map(TranslationTask::getTargetLanguage)
+                .forEach(subtitleLanguages::add);
+        var deletedJob = new DeletedJob(jobId, video.getStorageBucket(), video.getStorageKey(),
+                List.copyOf(subtitleLanguages));
+        jobRepository.deleteJobRow(jobId.toString());
+        jobRepository.deleteVideoRow(video.getId().toString());
+        return deletedJob;
     }
 
     private SubtitleJob loadJob(UUID jobId) {

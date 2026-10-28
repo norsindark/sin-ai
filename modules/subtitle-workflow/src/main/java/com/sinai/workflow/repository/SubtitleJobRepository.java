@@ -46,6 +46,11 @@ public interface SubtitleJobRepository extends JpaRepository<SubtitleJob, UUID> 
     @NativeQuery("UPDATE subtitle_jobs SET transcription_progress = :progress WHERE id = CAST(:jobId AS UUID)")
     int updateTranscriptionProgress(@Param("jobId") String jobId, @Param("progress") int progress);
 
+    @Modifying(flushAutomatically = true)
+    @NativeQuery("UPDATE subtitle_jobs SET owner_id = CAST(:newOwnerId AS UUID) "
+            + "WHERE owner_id = CAST(:previousOwnerId AS UUID)")
+    int transferOwnership(@Param("previousOwnerId") String previousOwnerId, @Param("newOwnerId") String newOwnerId);
+
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @NativeQuery("DELETE FROM subtitle_jobs WHERE id = CAST(:jobId AS UUID)")
     int deleteJobRow(@Param("jobId") String jobId);

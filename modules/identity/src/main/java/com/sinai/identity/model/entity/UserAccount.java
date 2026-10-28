@@ -28,7 +28,7 @@ public class UserAccount {
     @Column(name = "username", nullable = false, updatable = false)
     private String username;
 
-    @Column(name = "email", nullable = false, updatable = false)
+    @Column(name = "email", nullable = false)
     private String email;
 
     @Column(name = "password_hash", nullable = false)
@@ -40,6 +40,9 @@ public class UserAccount {
 
     @Column(name = "enabled", nullable = false)
     private boolean enabled;
+
+    @Column(name = "token_version", nullable = false)
+    private int tokenVersion;
 
     @Version
     @Column(name = "version", nullable = false)
@@ -74,5 +77,15 @@ public class UserAccount {
 
     public void changeEnabled(boolean newEnabled) {
         enabled = newEnabled;
+    }
+
+    public void changeEmail(String newEmail) {
+        email = newEmail;
+        tokenVersion++;
+    }
+
+    public void changePasswordHash(String newPasswordHash) {
+        passwordHash = newPasswordHash;
+        tokenVersion++;
     }
 }

@@ -17,7 +17,7 @@ public class TokenStateRepository {
     private final JdbcClient jdbcClient;
 
     public Optional<TokenSubjectState> findSubjectState(UUID userId, UUID jti) {
-        return jdbcClient.sql("SELECT u.role, u.enabled, "
+        return jdbcClient.sql("SELECT u.role, u.enabled, u.token_version, "
                         + "EXISTS (SELECT 1 FROM revoked_tokens r WHERE r.jti = CAST(:jti AS UUID)) AS revoked "
                         + "FROM users u WHERE u.id = CAST(:userId AS UUID)")
                 .param("jti", jti.toString())
@@ -25,6 +25,7 @@ public class TokenStateRepository {
                 .query((resultSet, rowNumber) -> new TokenSubjectState(
                         EnumUtils.getEnum(Role.class, resultSet.getString("role")),
                         resultSet.getBoolean("enabled"),
+                        resultSet.getInt("token_version"),
                         resultSet.getBoolean("revoked")))
                 .optional();
     }
@@ -43,6 +44,6 @@ public class TokenStateRepository {
                 .update();
     }
 
-    public record TokenSubjectState(Role role, boolean enabled, boolean revoked) {
+    public record TokenSubjectState(Role role, boolean enabled, int tokenVersion, boolean revoked) {
     }
 }

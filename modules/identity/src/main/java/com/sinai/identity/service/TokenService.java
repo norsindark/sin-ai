@@ -33,6 +33,7 @@ public class TokenService {
                 .claim(SecurityConfig.USERNAME_CLAIM, user.getUsername())
                 .claim(SecurityConfig.EMAIL_CLAIM, user.getEmail())
                 .claim(SecurityConfig.ROLES_CLAIM, List.of(user.getRole().name()))
+                .claim(SecurityConfig.TOKEN_VERSION_CLAIM, user.getTokenVersion())
                 .build();
         var header = JwsHeader.with(MacAlgorithm.HS256).build();
         return jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();

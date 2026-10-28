@@ -17,6 +17,9 @@ spring:
       max-request-size: 10250MB
       location: ${sinai.workflow.upload-directory}
 
+server:
+  forward-headers-strategy: native
+
 logging:
   pattern:
     correlation: "[%X{traceId:-},%X{spanId:-},%X{jobId:-}] "
@@ -78,6 +81,15 @@ sinai:
       password: ${SINAI_ADMIN_PASSWORD:}
     observability:
       token: ${SINAI_OBSERVABILITY_TOKEN:}
+    throttle:
+      max-login-failures-per-account: 5
+      max-login-failures-per-client: 20
+      login-window: 15m
+      max-registrations-per-client: 10
+      registration-window: 1h
+    refresh:
+      ttl: ${SINAI_REFRESH_TTL:14d}
+      cookie-secure: ${SINAI_REFRESH_COOKIE_SECURE:true}
   storage:
     endpoint: http://localhost:${STORAGE_API_PORT:9000}
     access-key: ${STORAGE_APP_ACCESS_KEY}

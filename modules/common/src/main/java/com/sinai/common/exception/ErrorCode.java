@@ -27,7 +27,10 @@ public enum ErrorCode {
     USERNAME_ALREADY_EXISTS(409, "Username is already registered"),
     EMAIL_ALREADY_EXISTS(409, "Email is already registered"),
     USER_NOT_FOUND(404, "User not found"),
-    LAST_ADMIN(409, "At least one enabled admin is required");
+    LAST_ADMIN(409, "At least one enabled admin is required"),
+    TOO_MANY_ATTEMPTS(429, "Too many attempts, try again later"),
+    INVALID_CURRENT_PASSWORD(400, "Current password is incorrect"),
+    CANNOT_DELETE_SELF(409, "You cannot delete your own account");
 
     private final int httpStatus;
     private final String defaultMessage;

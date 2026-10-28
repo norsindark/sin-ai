@@ -3,6 +3,7 @@ package com.sinai.app.config;
 import com.sinai.common.dto.ApiErrorResponse;
 import com.sinai.common.exception.ErrorCode;
 import com.sinai.common.exception.SinAiException;
+import com.sinai.common.exception.TooManyAttemptsException;
 import java.util.Objects;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -32,6 +33,15 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         }
         return build(status, errorCode, StringUtils.defaultIfBlank(exception.getMessage(),
                 errorCode.getDefaultMessage()));
+    }
+
+    @ExceptionHandler(TooManyAttemptsException.class)
+    public ResponseEntity<ApiErrorResponse> handleTooManyAttempts(TooManyAttemptsException exception) {
+        var retryAfterSeconds = Math.max(1, exception.getRetryAfter().toSeconds());
+        var errorCode = exception.getErrorCode();
+        return ResponseEntity.status(errorCode.getHttpStatus())
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(retryAfterSeconds))
+                .body(new ApiErrorResponse(errorCode, errorCode.getDefaultMessage()));
     }
 
     @ExceptionHandler(MultipartException.class)

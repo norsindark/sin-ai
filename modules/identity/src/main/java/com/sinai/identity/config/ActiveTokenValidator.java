@@ -26,11 +26,15 @@ public class ActiveTokenValidator implements OAuth2TokenValidator<Jwt> {
         var userId = parseUuid(jwt.getSubject());
         var jti = parseUuid(jwt.getId());
         var roles = jwt.getClaimAsStringList(SecurityConfig.ROLES_CLAIM);
-        if (userId.isEmpty() || jti.isEmpty() || CollectionUtils.isEmpty(roles)) {
+        var tokenVersion = jwt.getClaim(SecurityConfig.TOKEN_VERSION_CLAIM) instanceof Number version
+                ? Optional.of(version.intValue())
+                : Optional.<Integer>empty();
+        if (userId.isEmpty() || jti.isEmpty() || tokenVersion.isEmpty() || CollectionUtils.isEmpty(roles)) {
             return INACTIVE;
         }
         var active = tokenStateRepository.findSubjectState(userId.get(), jti.get())
                 .filter(state -> state.enabled() && !state.revoked())
+                .filter(state -> state.tokenVersion() == tokenVersion.get())
                 .filter(state -> roles.size() == 1 && state.role().name().equals(roles.getFirst()))
                 .isPresent();
         return active ? OAuth2TokenValidatorResult.success() : INACTIVE;

@@ -29,12 +29,15 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtGra
 import org.springframework.security.web.SecurityFilterChain;
 
 @Configuration
-@EnableConfigurationProperties({JwtProperties.class, AdminSeedProperties.class, ObservabilityTokenProperties.class})
+@EnableConfigurationProperties({JwtProperties.class, AdminSeedProperties.class, ObservabilityTokenProperties.class,
+        ThrottleProperties.class, RefreshSessionProperties.class})
 public class SecurityConfig {
 
     public static final String ROLES_CLAIM = "roles";
     public static final String USERNAME_CLAIM = "username";
     public static final String EMAIL_CLAIM = "email";
+    public static final String TOKEN_VERSION_CLAIM = "ver";
+    public static final String REFRESH_COOKIE = "sinai_refresh";
     public static final String OBSERVABILITY_ROLE = "OBSERVABILITY";
 
     @Bean
@@ -48,12 +51,14 @@ public class SecurityConfig {
                 .logout(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login",
+                                "/api/v1/auth/refresh").permitAll()
                         .requestMatchers("/v3/api-docs", "/v3/api-docs/**", "/swagger-ui.html", "/swagger-ui/**")
                         .permitAll()
                         .requestMatchers("/actuator/health", "/actuator/health/**", "/error").permitAll()
                         .requestMatchers("/actuator/**").hasAnyRole(Role.ADMIN.name(), OBSERVABILITY_ROLE)
                         .requestMatchers("/api/v1/users", "/api/v1/users/**").hasRole(Role.ADMIN.name())
+                        .requestMatchers("/api/v1/admin", "/api/v1/admin/**").hasRole(Role.ADMIN.name())
                         .anyRequest().hasAnyRole(Role.ADMIN.name(), Role.USER.name()))
                 .oauth2ResourceServer(resourceServer -> resourceServer
                         .authenticationManagerResolver(request -> bearerAuthenticationManager)

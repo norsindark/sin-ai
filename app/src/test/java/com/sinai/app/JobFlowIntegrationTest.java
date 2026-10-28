@@ -1,12 +1,14 @@
 package com.sinai.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -62,7 +64,8 @@ import tools.jackson.databind.json.JsonMapper;
         "sinai.security.jwt.secret=" + JobFlowIntegrationTest.JWT_SECRET, "sinai.security.admin.username=",
         "sinai.security.admin.email=",
         "sinai.security.observability.token=" + JobFlowIntegrationTest.OBSERVABILITY_TOKEN,
-        "sinai.security.admin.password="})
+        "sinai.security.admin.password=", "sinai.security.throttle.max-registrations-per-client=100000",
+        "sinai.security.throttle.max-login-failures-per-client=100000"})
 @AutoConfigureMockMvc
 @EnabledIf("infrastructureAvailable")
 class JobFlowIntegrationTest {
@@ -70,6 +73,8 @@ class JobFlowIntegrationTest {
     static final String JWT_SECRET = "integration-test-secret-0123456789abcdef";
     static final String OBSERVABILITY_TOKEN = "integration-observability-token-0123456789";
     private static final String PASSWORD = "integration-password";
+    private static final String NEW_PASSWORD = "integration-password-2";
+    private static final String REFRESH_COOKIE = "sinai_refresh";
 
     private static final byte[] MP4_BYTES = {0, 0, 0, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm', 0, 0, 2, 0};
 
@@ -202,6 +207,30 @@ class JobFlowIntegrationTest {
     }
 
     @Test
+    void repeatedFailedLoginsAreThrottledWithRetryAfterEvenWithTheRightPassword() throws Exception {
+        var username = newUsername();
+        registerUser(username);
+        for (var attempt = 0; attempt < 5; attempt++) {
+            anonymousMockMvc.perform(post("/api/v1/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(loginJson(username, "wrong-password")))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        anonymousMockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginJson(username.toUpperCase(), PASSWORD)))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("TOO_MANY_ATTEMPTS"))
+                .andExpect(result -> assertThat(Long.parseLong(
+                        result.getResponse().getHeader(HttpHeaders.RETRY_AFTER))).isBetween(1L, 900L));
+        anonymousMockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginJson("it-unknown-" + UUID.randomUUID().toString().substring(0, 8), PASSWORD)))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void logoutRevokesTheTokenButNotOtherSessions() throws Exception {
         var username = newUsername();
         registerUser(username);
@@ -272,6 +301,165 @@ class JobFlowIntegrationTest {
                 .andExpect(status().isUnauthorized());
         anonymousMockMvc.perform(get("/api/v1/users").header(HttpHeaders.AUTHORIZATION, bearer(login(username))))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void refreshCookieRotatesAndPasswordChangeEndsEveryOtherSession() throws Exception {
+        var username = newUsername();
+        registerUser(username);
+        var firstLogin = anonymousMockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginJson(username, PASSWORD)))
+                .andExpect(status().isOk())
+                .andReturn().getResponse();
+        var firstCookie = firstLogin.getCookie(REFRESH_COOKIE);
+        assertThat(firstCookie).isNotNull();
+        assertThat(firstCookie.isHttpOnly()).isTrue();
+        assertThat(firstCookie.getPath()).isEqualTo("/api/v1/auth");
+        assertThat(firstCookie.getMaxAge()).isEqualTo(14 * 24 * 3600);
+        assertThat(firstLogin.getHeader(HttpHeaders.SET_COOKIE)).contains("SameSite=Strict");
+
+        var refreshed = anonymousMockMvc.perform(post("/api/v1/auth/refresh").cookie(firstCookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.username").value(username))
+                .andReturn().getResponse();
+        var rotatedCookie = refreshed.getCookie(REFRESH_COOKIE);
+        assertThat(rotatedCookie.getValue()).isNotEqualTo(firstCookie.getValue());
+        anonymousMockMvc.perform(post("/api/v1/auth/refresh").cookie(firstCookie))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        anonymousMockMvc.perform(post("/api/v1/auth/refresh"))
+                .andExpect(status().isUnauthorized());
+        var refreshedToken = jsonMapper.readTree(refreshed.getContentAsString()).path("accessToken").asString();
+        var otherDeviceToken = login(username);
+
+        anonymousMockMvc.perform(put("/api/v1/auth/me/password")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(refreshedToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonMapper.writeValueAsString(Map.of("currentPassword", "wrong-password",
+                                "newPassword", NEW_PASSWORD))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_CURRENT_PASSWORD"));
+        var changed = anonymousMockMvc.perform(put("/api/v1/auth/me/password")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(refreshedToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonMapper.writeValueAsString(Map.of("currentPassword", PASSWORD,
+                                "newPassword", NEW_PASSWORD))))
+                .andExpect(status().isOk())
+                .andReturn().getResponse();
+        var newToken = jsonMapper.readTree(changed.getContentAsString()).path("accessToken").asString();
+        var newCookie = changed.getCookie(REFRESH_COOKIE);
+
+        for (var staleToken : List.of(refreshedToken, otherDeviceToken)) {
+            anonymousMockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(staleToken)))
+                    .andExpect(status().isUnauthorized());
+        }
+        anonymousMockMvc.perform(post("/api/v1/auth/refresh").cookie(rotatedCookie))
+                .andExpect(status().isUnauthorized());
+        anonymousMockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(newToken)))
+                .andExpect(status().isOk());
+        anonymousMockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginJson(username, NEW_PASSWORD)))
+                .andExpect(status().isOk());
+
+        var loggedOut = anonymousMockMvc.perform(post("/api/v1/auth/logout")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(newToken))
+                        .cookie(newCookie))
+                .andExpect(status().isNoContent())
+                .andReturn().getResponse();
+        assertThat(loggedOut.getCookie(REFRESH_COOKIE).getMaxAge()).isZero();
+        anonymousMockMvc.perform(post("/api/v1/auth/refresh").cookie(newCookie))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void changeEmailRequiresTheCurrentPasswordAndAnUnusedEmail() throws Exception {
+        var username = newUsername();
+        registerUser(username);
+        var token = login(username);
+        var takenEmail = registerUserAndReturnEmail();
+        var newEmail = newUsername() + "@sinai.test";
+
+        anonymousMockMvc.perform(put("/api/v1/auth/me/email")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonMapper.writeValueAsString(Map.of("email", takenEmail,
+                                "currentPassword", PASSWORD))))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("EMAIL_ALREADY_EXISTS"));
+        var changed = anonymousMockMvc.perform(put("/api/v1/auth/me/email")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(token))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonMapper.writeValueAsString(Map.of("email", newEmail.toUpperCase(),
+                                "currentPassword", PASSWORD))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.email").value(newEmail))
+                .andReturn().getResponse().getContentAsString();
+
+        anonymousMockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isUnauthorized());
+        anonymousMockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION,
+                        bearer(jsonMapper.readTree(changed).path("accessToken").asString())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value(newEmail));
+        login(newEmail);
+    }
+
+    @Test
+    void adminResetsPasswordsAndDeletingAUserTransfersTheirJobsToTheAdmin() throws Exception {
+        var adminToken = createAdminAndLogin();
+        var adminId = UUID.fromString(jsonMapper.readTree(anonymousMockMvc.perform(get("/api/v1/auth/me")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                .andReturn().getResponse().getContentAsString()).path("id").asString());
+        var jobId = createJob("transfer.mp4", "en", "vi");
+        var ownerId = jobRepository.findById(jobId).orElseThrow().getOwnerId();
+
+        anonymousMockMvc.perform(put("/api/v1/users/{id}/password", ownerId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(jsonMapper.writeValueAsString(Map.of("newPassword", NEW_PASSWORD))))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/v1/auth/me"))
+                .andExpect(status().isUnauthorized());
+        anonymousMockMvc.perform(delete("/api/v1/users/{id}", adminId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CANNOT_DELETE_SELF"));
+        anonymousMockMvc.perform(delete("/api/v1/users/{id}", ownerId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                .andExpect(status().isNoContent());
+
+        assertThat(userRepository.findById(ownerId)).isEmpty();
+        assertThat(jobRepository.findById(jobId).orElseThrow().getOwnerId()).isEqualTo(adminId);
+        anonymousMockMvc.perform(delete("/api/v1/users/{id}", ownerId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
+        anonymousMockMvc.perform(delete("/api/v1/jobs/{id}", jobId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    void adminDashboardAggregatesUsersJobsStorageAndRecentActivity() throws Exception {
+        var jobId = createJob("dashboard.mp4", "en", "vi");
+        var adminToken = createAdminAndLogin();
+
+        mockMvc.perform(get("/api/v1/admin/dashboard"))
+                .andExpect(status().isForbidden());
+        anonymousMockMvc.perform(get("/api/v1/admin/dashboard").header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.users.total").value(greaterThanOrEqualTo(2)))
+                .andExpect(jsonPath("$.users.activeAdmins").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.jobs.byStatus.length()").value(JobStatus.values().length))
+                .andExpect(jsonPath("$.jobs.createdLast7Days").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.storage.uploadedBytes")
+                        .value(greaterThanOrEqualTo(MP4_BYTES.length)))
+                .andExpect(jsonPath("$.dailyJobs.length()").value(14))
+                .andExpect(jsonPath("$.recentJobs[?(@.id == '" + jobId + "')].title").value("dashboard"))
+                .andExpect(jsonPath("$.recentJobs[?(@.id == '" + jobId + "')].ownerUsername").isNotEmpty())
+                .andExpect(jsonPath("$.recentUsers.length()").value(greaterThanOrEqualTo(2)));
     }
 
     @Test
@@ -542,6 +730,12 @@ class JobFlowIntegrationTest {
         var username = newUsername();
         registerUser(username);
         return login(username);
+    }
+
+    private String registerUserAndReturnEmail() throws Exception {
+        var username = newUsername();
+        registerUser(username);
+        return username + "@sinai.test";
     }
 
     private String createAdminAndLogin() throws Exception {

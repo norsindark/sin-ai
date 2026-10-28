@@ -10,5 +10,8 @@ public record TranslationTaskResponse(
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) JobStatus status,
         @Schema(nullable = true, description = "Presigned download URL of the translated .srt, set once completed")
         String subtitleUrl,
+        @Schema(nullable = true, minimum = "0", maximum = "100",
+                description = "Translation progress in percent, null until translation starts")
+        Integer progress,
         @Schema(nullable = true) String errorMessage) {
 }

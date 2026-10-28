@@ -46,6 +46,16 @@ public class JobLifecycleService {
     }
 
     @Transactional
+    public void updateTranscriptionProgress(UUID jobId, int percent) {
+        jobRepository.updateTranscriptionProgress(jobId.toString(), percent);
+    }
+
+    @Transactional
+    public void updateTaskProgress(UUID taskId, int percent) {
+        taskRepository.updateProgress(taskId.toString(), percent);
+    }
+
+    @Transactional
     public void startTask(UUID taskId) {
         loadTask(taskId).start();
     }

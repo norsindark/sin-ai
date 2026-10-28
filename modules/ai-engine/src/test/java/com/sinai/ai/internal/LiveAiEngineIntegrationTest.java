@@ -7,11 +7,13 @@ import com.sinai.ai.config.AiProperties;
 import com.sinai.ai.internal.llm.OllamaSubtitleTranslator;
 import com.sinai.ai.internal.whisper.WhisperTranscriber;
 import com.sinai.common.constant.Language;
+import io.micrometer.observation.ObservationRegistry;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.client.RestClient;
 
 class LiveAiEngineIntegrationTest {
 
@@ -23,8 +25,10 @@ class LiveAiEngineIntegrationTest {
         Assumptions.assumeTrue(Files.isRegularFile(wav), "SINAI_TEST_WAV does not exist");
         var properties = new AiProperties(null, null);
         var config = new AiConfig();
-        var transcriber = new WhisperTranscriber(config.whisperRestClient(properties), properties);
-        var translator = new OllamaSubtitleTranslator(config.ollamaRestClient(properties), properties);
+        var transcriber = new WhisperTranscriber(config.whisperRestClient(RestClient.builder(), properties),
+                properties, ObservationRegistry.NOOP);
+        var translator = new OllamaSubtitleTranslator(config.ollamaRestClient(RestClient.builder(), properties),
+                properties, ObservationRegistry.NOOP);
 
         var segments = transcriber.transcribe(wav, Language.ENGLISH);
         var translated = translator.translate(segments, Language.ENGLISH, Language.VIETNAMESE);

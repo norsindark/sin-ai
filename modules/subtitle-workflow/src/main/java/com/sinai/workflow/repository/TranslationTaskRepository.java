@@ -4,6 +4,7 @@ import com.sinai.workflow.model.entity.TranslationTask;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.NativeQuery;
 import org.springframework.data.repository.query.Param;
 
@@ -13,4 +14,8 @@ public interface TranslationTaskRepository extends JpaRepository<TranslationTask
             + "WHERE t.job_id = ANY(CAST(:jobIds AS UUID[])) "
             + "ORDER BY t.job_id, t.target_language")
     List<TranslationTask> findAllByJobIds(@Param("jobIds") String[] jobIds);
+
+    @Modifying
+    @NativeQuery("UPDATE translation_tasks SET progress = :progress WHERE id = CAST(:taskId AS UUID)")
+    int updateProgress(@Param("taskId") String taskId, @Param("progress") int progress);
 }

@@ -237,6 +237,7 @@ public class JobService {
                 new VideoResponse(video.getId(), video.getOriginalFilename(), title, video.getSizeBytes()),
                 presignProcessed(job.getSourceSubtitleKey(), subtitleDownloadName(title, job.getSourceLanguage())),
                 presignProcessed(job.getOutputVideoKey(), title + "." + FileType.VIDEO.getExtension()),
+                job.getTranscriptionProgress(),
                 EnumUtils.getEnum(ErrorCode.class, job.getErrorCode()),
                 job.getErrorMessage(),
                 job.getCreatedAt(),
@@ -251,6 +252,7 @@ public class JobService {
                 task.getTargetLanguage().getCode(),
                 task.getStatus(),
                 presignProcessed(task.getSubtitleKey(), subtitleDownloadName(title, task.getTargetLanguage())),
+                task.getProgress(),
                 task.getErrorMessage());
     }
 

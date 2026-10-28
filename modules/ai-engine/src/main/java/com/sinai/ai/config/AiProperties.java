@@ -10,14 +10,14 @@ public record AiProperties(Whisper whisper, Ollama ollama) {
 
     public AiProperties {
         if (Objects.isNull(whisper)) {
-            whisper = new Whisper(null, null, null);
+            whisper = new Whisper(null, null, null, false);
         }
         if (Objects.isNull(ollama)) {
             ollama = new Ollama(null, null, null, 0);
         }
     }
 
-    public record Whisper(String baseUrl, String model, Duration timeout) {
+    public record Whisper(String baseUrl, String model, Duration timeout, boolean vadFilter) {
 
         public Whisper {
             if (StringUtils.isBlank(baseUrl)) {
@@ -45,7 +45,7 @@ public record AiProperties(Whisper whisper, Ollama ollama) {
                 timeout = Duration.ofMinutes(5);
             }
             if (batchSize < 1) {
-                batchSize = 20;
+                batchSize = 8;
             }
         }
     }

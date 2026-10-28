@@ -25,7 +25,9 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "subtitle_jobs")
@@ -52,6 +54,10 @@ public class SubtitleJob {
 
     @Column(name = "output_video_key")
     private String outputVideoKey;
+
+    @JdbcTypeCode(SqlTypes.SMALLINT)
+    @Column(name = "transcription_progress", insertable = false, updatable = false)
+    private Integer transcriptionProgress;
 
     @Column(name = "error_code")
     private String errorCode;

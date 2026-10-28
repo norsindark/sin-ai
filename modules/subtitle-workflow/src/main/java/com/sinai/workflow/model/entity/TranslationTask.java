@@ -18,7 +18,9 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "translation_tasks")
@@ -45,6 +47,10 @@ public class TranslationTask {
 
     @Column(name = "error_message")
     private String errorMessage;
+
+    @JdbcTypeCode(SqlTypes.SMALLINT)
+    @Column(name = "progress", insertable = false, updatable = false)
+    private Integer progress;
 
     @Version
     @Column(name = "version", nullable = false)

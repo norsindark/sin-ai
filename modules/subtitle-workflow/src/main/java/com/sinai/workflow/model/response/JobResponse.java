@@ -18,6 +18,9 @@ public record JobResponse(
         String sourceSubtitleUrl,
         @Schema(nullable = true, description = "Presigned download URL of the subtitled video")
         String outputVideoUrl,
+        @Schema(nullable = true, minimum = "0", maximum = "100",
+                description = "Transcription progress in percent, null until transcription starts")
+        Integer transcriptionProgress,
         @Schema(nullable = true) ErrorCode errorCode,
         @Schema(nullable = true) String errorMessage,
         @Schema(requiredMode = Schema.RequiredMode.REQUIRED) Instant createdAt,

@@ -112,13 +112,19 @@ class JobLifecycleIntegrationTest {
         var claimed = lifecycle.claimNextPending().orElseThrow();
         var taskId = claimed.tasks().getFirst().id();
 
+        lifecycle.updateTranscriptionProgress(jobId, 40);
+        lifecycle.updateTranscriptionProgress(jobId, 100);
         lifecycle.attachSourceSubtitle(jobId, "jobs/" + jobId + "/subtitles/en.srt");
         lifecycle.startTask(taskId);
+        lifecycle.updateTaskProgress(taskId, 100);
         lifecycle.completeTask(taskId, "jobs/" + jobId + "/subtitles/vi.srt");
         lifecycle.complete(jobId, "jobs/" + jobId + "/output.mp4");
 
         var stored = jobRepository.findWithDetailsById(jobId).orElseThrow();
         assertThat(stored.getStatus()).isEqualTo(JobStatus.COMPLETED);
+        assertThat(stored.getTranscriptionProgress()).isEqualTo(100);
+        assertThat(stored.getTranslationTasks()).singleElement()
+                .satisfies(task -> assertThat(task.getProgress()).isEqualTo(100));
         assertThat(stored.getCompletedAt()).isNotNull();
         assertThat(stored.getSourceSubtitleKey()).endsWith("/subtitles/en.srt");
         assertThat(stored.getOutputVideoKey()).endsWith("/output.mp4");

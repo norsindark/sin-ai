@@ -235,7 +235,8 @@ class JobApiWebMvcTest {
     private static JobResponse sampleJob() {
         var now = Instant.parse("2026-10-25T00:00:00Z");
         return new JobResponse(UUID.randomUUID(), JobStatus.PENDING, "en",
-                new VideoResponse(UUID.randomUUID(), "clip.mp4", "clip", 3), null, null, null, null, now, now, null, null,
+                new VideoResponse(UUID.randomUUID(), "clip.mp4", "clip", 3), null, null, null, null, null, now, now, null,
+                null,
                 List.of());
     }
 }

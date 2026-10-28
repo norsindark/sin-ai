@@ -10,4 +10,6 @@ dependencies {
     implementation(libs.spring.boot.starter.webmvc)
     implementation(libs.spring.boot.starter.data.jpa)
     implementation(libs.springdoc.openapi.starter.webmvc.api)
+    implementation(libs.micrometer.observation)
+    testImplementation(libs.micrometer.observation.test)
 }

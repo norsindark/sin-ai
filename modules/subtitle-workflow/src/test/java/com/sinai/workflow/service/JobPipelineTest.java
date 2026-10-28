@@ -12,6 +12,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.sinai.ai.api.ProgressListener;
 import com.sinai.ai.api.SpeechTranscriber;
 import com.sinai.ai.api.SubtitleTranslator;
 import com.sinai.common.constant.Language;
@@ -25,6 +26,8 @@ import com.sinai.media.api.SubtitleTrack;
 import com.sinai.media.api.SubtitleWriter;
 import com.sinai.storage.api.ObjectStorage;
 import com.sinai.storage.config.StorageProperties;
+import io.micrometer.observation.tck.TestObservationRegistry;
+import io.micrometer.observation.tck.TestObservationRegistryAssert;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
@@ -52,9 +55,11 @@ class JobPipelineTest {
     private Path workspaceBase;
     private JobPipeline pipeline;
     private ClaimedJob job;
+    private TestObservationRegistry observations;
 
     @BeforeEach
     void setUp() {
+        observations = TestObservationRegistry.create();
         lifecycle = mock(JobLifecycleService.class);
         objectStorage = mock(ObjectStorage.class);
         audioExtractor = mock(AudioExtractor.class);
@@ -66,13 +71,42 @@ class JobPipelineTest {
         var storageProperties = new StorageProperties("http://localhost:9000", "key", "secret", "raw-videos",
                 "processed-videos", "us-east-1", null);
         pipeline = new JobPipeline(lifecycle, objectStorage, storageProperties, new TempFileManager(workspaceBase),
-                audioExtractor, speechTranscriber, subtitleTranslator, subtitleWriter, subtitleMerger);
+                audioExtractor, speechTranscriber, subtitleTranslator, subtitleWriter, subtitleMerger, observations);
         job = new ClaimedJob(UUID.randomUUID(), "raw-videos", "videos/abc/source.mp4", Language.ENGLISH, List.of(
                 new ClaimedJob.Task(UUID.randomUUID(), Language.VIETNAMESE),
                 new ClaimedJob.Task(UUID.randomUUID(), Language.JAPANESE)));
-        when(speechTranscriber.transcribe(any(Path.class), eq(Language.ENGLISH))).thenReturn(SEGMENTS);
-        when(subtitleTranslator.translate(eq(SEGMENTS), eq(Language.ENGLISH), any(Language.class)))
+        when(speechTranscriber.transcribe(any(Path.class), eq(Language.ENGLISH), any(ProgressListener.class)))
                 .thenReturn(SEGMENTS);
+        when(subtitleTranslator.translate(eq(SEGMENTS), eq(Language.ENGLISH), any(Language.class),
+                any(ProgressListener.class)))
+                .thenReturn(SEGMENTS);
+    }
+
+    @Test
+    void recordsTranscriptionAndTranslationProgress() {
+        when(speechTranscriber.transcribe(any(Path.class), eq(Language.ENGLISH), any(ProgressListener.class)))
+                .thenAnswer(invocation -> {
+                    var listener = invocation.getArgument(2, ProgressListener.class);
+                    listener.onProgress(0);
+                    listener.onProgress(40);
+                    listener.onProgress(100);
+                    return SEGMENTS;
+                });
+        when(subtitleTranslator.translate(eq(SEGMENTS), eq(Language.ENGLISH), any(Language.class),
+                any(ProgressListener.class)))
+                .thenAnswer(invocation -> {
+                    invocation.getArgument(3, ProgressListener.class).onProgress(100);
+                    return SEGMENTS;
+                });
+
+        pipeline.process(job);
+
+        verify(lifecycle).updateTranscriptionProgress(job.id(), 0);
+        verify(lifecycle, never()).updateTranscriptionProgress(job.id(), 40);
+        verify(lifecycle).updateTranscriptionProgress(job.id(), 100);
+        for (var task : job.tasks()) {
+            verify(lifecycle).updateTaskProgress(task.id(), 100);
+        }
     }
 
     @Test
@@ -83,7 +117,8 @@ class JobPipelineTest {
         var order = inOrder(objectStorage, audioExtractor, speechTranscriber, subtitleMerger, lifecycle);
         order.verify(objectStorage).download(eq("raw-videos"), eq("videos/abc/source.mp4"), any(Path.class));
         order.verify(audioExtractor).extractAudio(any(Path.class), any(Path.class));
-        order.verify(speechTranscriber).transcribe(any(Path.class), eq(Language.ENGLISH));
+        order.verify(speechTranscriber)
+                .transcribe(any(Path.class), eq(Language.ENGLISH), any(ProgressListener.class));
         order.verify(lifecycle).attachSourceSubtitle(job.id(), prefix + "subtitles/en.srt");
         order.verify(subtitleMerger).merge(any(Path.class), any(), any(Path.class));
         order.verify(objectStorage).upload(eq("processed-videos"), eq(prefix + "output.mp4"), any(Path.class),
@@ -101,11 +136,19 @@ class JobPipelineTest {
         assertThat(mergedLanguages()).containsExactly(Language.ENGLISH, Language.VIETNAMESE, Language.JAPANESE);
         verify(lifecycle, never()).fail(any(), any());
         assertThat(workspaceBase).isEmptyDirectory();
+        TestObservationRegistryAssert.assertThat(observations)
+                .hasObservationWithNameEqualTo(JobPipeline.JOB_OBSERVATION).that()
+                .hasLowCardinalityKeyValue("outcome", "COMPLETED")
+                .hasHighCardinalityKeyValue("job.id", job.id().toString())
+                .hasBeenStopped();
+        TestObservationRegistryAssert.assertThat(observations)
+                .hasNumberOfObservationsWithNameEqualTo(JobPipeline.STAGE_OBSERVATION, 7);
     }
 
     @Test
     void failedTranslationIsIsolatedToItsTask() {
-        when(subtitleTranslator.translate(SEGMENTS, Language.ENGLISH, Language.JAPANESE))
+        when(subtitleTranslator.translate(eq(SEGMENTS), eq(Language.ENGLISH), eq(Language.JAPANESE),
+                any(ProgressListener.class)))
                 .thenThrow(new SinAiException(ErrorCode.TRANSLATION_ERROR, "Ollama is down"));
 
         pipeline.process(job);
@@ -128,13 +171,18 @@ class JobPipelineTest {
 
         verify(lifecycle).fail(job.id(), ErrorCode.MEDIA_PROCESSING_ERROR);
         verify(lifecycle, never()).complete(any(), any());
+        TestObservationRegistryAssert.assertThat(observations)
+                .hasObservationWithNameEqualTo(JobPipeline.JOB_OBSERVATION).that()
+                .hasLowCardinalityKeyValue("outcome", ErrorCode.MEDIA_PROCESSING_ERROR.name())
+                .hasError();
         verifyNoInteractions(speechTranscriber, subtitleTranslator, subtitleMerger);
         assertThat(workspaceBase).isEmptyDirectory();
     }
 
     @Test
     void emptyTranscriptFailsWithNoSpeechDetected() {
-        when(speechTranscriber.transcribe(any(Path.class), eq(Language.ENGLISH))).thenReturn(List.of());
+        when(speechTranscriber.transcribe(any(Path.class), eq(Language.ENGLISH), any(ProgressListener.class)))
+                .thenReturn(List.of());
 
         pipeline.process(job);
 
@@ -146,7 +194,7 @@ class JobPipelineTest {
 
     @Test
     void unexpectedExceptionFailsJobWithInternalError() {
-        when(speechTranscriber.transcribe(any(Path.class), eq(Language.ENGLISH)))
+        when(speechTranscriber.transcribe(any(Path.class), eq(Language.ENGLISH), any(ProgressListener.class)))
                 .thenThrow(new IllegalStateException("boom"));
 
         pipeline.process(job);

@@ -38,6 +38,10 @@ public interface SubtitleJobRepository extends JpaRepository<SubtitleJob, UUID> 
     @Query("SELECT j FROM SubtitleJob j JOIN FETCH j.video WHERE j.id = :id")
     Optional<SubtitleJob> findForUpdateById(@Param("id") UUID id);
 
+    @Modifying
+    @NativeQuery("UPDATE subtitle_jobs SET transcription_progress = :progress WHERE id = CAST(:jobId AS UUID)")
+    int updateTranscriptionProgress(@Param("jobId") String jobId, @Param("progress") int progress);
+
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @NativeQuery("DELETE FROM subtitle_jobs WHERE id = CAST(:jobId AS UUID)")
     int deleteJobRow(@Param("jobId") String jobId);

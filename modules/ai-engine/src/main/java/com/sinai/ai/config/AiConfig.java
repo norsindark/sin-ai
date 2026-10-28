@@ -15,19 +15,19 @@ public class AiConfig {
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
 
     @Bean
-    public RestClient whisperRestClient(AiProperties properties) {
-        return build(properties.whisper().baseUrl(), properties.whisper().timeout());
+    public RestClient whisperRestClient(RestClient.Builder builder, AiProperties properties) {
+        return build(builder, properties.whisper().baseUrl(), properties.whisper().timeout());
     }
 
     @Bean
-    public RestClient ollamaRestClient(AiProperties properties) {
-        return build(properties.ollama().baseUrl(), properties.ollama().timeout());
+    public RestClient ollamaRestClient(RestClient.Builder builder, AiProperties properties) {
+        return build(builder, properties.ollama().baseUrl(), properties.ollama().timeout());
     }
 
-    private RestClient build(String baseUrl, Duration readTimeout) {
+    private RestClient build(RestClient.Builder builder, String baseUrl, Duration readTimeout) {
         var httpClient = HttpClient.newBuilder().connectTimeout(CONNECT_TIMEOUT).build();
         var requestFactory = new JdkClientHttpRequestFactory(httpClient);
         requestFactory.setReadTimeout(readTimeout);
-        return RestClient.builder().baseUrl(baseUrl).requestFactory(requestFactory).build();
+        return builder.baseUrl(baseUrl).requestFactory(requestFactory).build();
     }
 }

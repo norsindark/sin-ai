@@ -7,5 +7,9 @@ import java.util.List;
 
 public interface SpeechTranscriber {
 
-    List<SubtitleSegment> transcribe(Path wav, Language language);
+    default List<SubtitleSegment> transcribe(Path wav, Language language) {
+        return transcribe(wav, language, ProgressListener.NONE);
+    }
+
+    List<SubtitleSegment> transcribe(Path wav, Language language, ProgressListener progress);
 }

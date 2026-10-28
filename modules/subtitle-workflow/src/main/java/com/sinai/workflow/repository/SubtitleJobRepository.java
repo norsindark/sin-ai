@@ -25,6 +25,10 @@ public interface SubtitleJobRepository extends JpaRepository<SubtitleJob, UUID> 
             countQuery = "SELECT COUNT(j) FROM SubtitleJob j")
     Page<SubtitleJob> findPageWithVideo(Pageable pageable);
 
+    @Query(value = "SELECT j FROM SubtitleJob j JOIN FETCH j.video WHERE j.ownerId = :ownerId",
+            countQuery = "SELECT COUNT(j) FROM SubtitleJob j WHERE j.ownerId = :ownerId")
+    Page<SubtitleJob> findPageWithVideoByOwnerId(@Param("ownerId") UUID ownerId, Pageable pageable);
+
     @NativeQuery("SELECT CAST(j.id AS VARCHAR) FROM subtitle_jobs j "
             + "WHERE j.status = 'PENDING' "
             + "ORDER BY j.created_at, j.id "

@@ -1,15 +1,20 @@
 package com.sinai.app;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.sinai.common.constant.JobStatus;
 import com.sinai.common.constant.Language;
+import com.sinai.identity.api.Role;
+import com.sinai.identity.model.entity.UserAccount;
+import com.sinai.identity.repository.UserAccountRepository;
 import com.sinai.storage.api.ObjectStorage;
 import com.sinai.storage.config.StorageProperties;
 import com.sinai.workflow.repository.SubtitleJobRepository;
@@ -29,10 +34,12 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.apache.commons.lang3.StringUtils;
 import org.hibernate.SessionFactory;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.junit.jupiter.api.io.TempDir;
@@ -40,22 +47,46 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.json.JsonMapper;
 
 @SpringBootTest(properties = {"spring.jpa.properties.hibernate.generate_statistics=true",
-        "sinai.workflow.worker.enabled=false", "sinai.workflow.temp-directory=${java.io.tmpdir}/sin-ai-test"})
+        "sinai.workflow.worker.enabled=false", "sinai.workflow.temp-directory=${java.io.tmpdir}/sin-ai-test",
+        "sinai.security.jwt.secret=" + JobFlowIntegrationTest.JWT_SECRET, "sinai.security.admin.username=",
+        "sinai.security.admin.email=",
+        "sinai.security.observability.token=" + JobFlowIntegrationTest.OBSERVABILITY_TOKEN,
+        "sinai.security.admin.password="})
 @AutoConfigureMockMvc
 @EnabledIf("infrastructureAvailable")
 class JobFlowIntegrationTest {
 
+    static final String JWT_SECRET = "integration-test-secret-0123456789abcdef";
+    static final String OBSERVABILITY_TOKEN = "integration-observability-token-0123456789";
+    private static final String PASSWORD = "integration-password";
+
     private static final byte[] MP4_BYTES = {0, 0, 0, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm', 0, 0, 2, 0};
 
     @Autowired
+    private MockMvc anonymousMockMvc;
+
+    @Autowired
+    private WebApplicationContext context;
+
+    @Autowired
+    private UserAccountRepository userRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
     private MockMvc mockMvc;
+    private String ownerToken;
 
     @Autowired
     private SubtitleJobRepository jobRepository;
@@ -82,6 +113,7 @@ class JobFlowIntegrationTest {
     private final List<UUID> createdJobIds = new ArrayList<>();
     private final List<String> createdObjectKeys = new ArrayList<>();
     private final List<String> createdProcessedKeys = new ArrayList<>();
+    private final List<UUID> createdUserIds = new ArrayList<>();
 
     static boolean infrastructureAvailable() {
         var required = List.of("SIN_AI_DB_PASSWORD", "STORAGE_APP_ACCESS_KEY", "STORAGE_APP_SECRET_KEY");
@@ -116,6 +148,176 @@ class JobFlowIntegrationTest {
                 jdbcTemplate.update("DELETE FROM videos WHERE id = CAST(? AS UUID)", videoId);
             }
         }
+        for (var userId : createdUserIds) {
+            jdbcTemplate.update("DELETE FROM users WHERE id = CAST(? AS UUID)", userId.toString());
+        }
+    }
+
+    @BeforeEach
+    void authenticateOwner() throws Exception {
+        ownerToken = registerAndLogin();
+        mockMvc = MockMvcBuilders.webAppContextSetup(context)
+                .apply(springSecurity())
+                .defaultRequest(get("/").header(HttpHeaders.AUTHORIZATION, bearer(ownerToken)))
+                .build();
+    }
+
+    @Test
+    void registerLoginByUsernameOrEmailAndMeRoundTrip() throws Exception {
+        var username = newUsername();
+        var email = username + "@Sinai.Test";
+        var registered = anonymousMockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(registerJson(username.toUpperCase(), email)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.username").value(username))
+                .andExpect(jsonPath("$.email").value(email.toLowerCase()))
+                .andExpect(jsonPath("$.role").value("USER"))
+                .andReturn().getResponse().getContentAsString();
+        createdUserIds.add(UUID.fromString(jsonMapper.readTree(registered).path("id").asString()));
+
+        anonymousMockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(registerJson(username, newUsername() + "@sinai.test")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("USERNAME_ALREADY_EXISTS"));
+        anonymousMockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(registerJson(newUsername(), email.toUpperCase())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("EMAIL_ALREADY_EXISTS"));
+        anonymousMockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginJson(username, "wrong-password")))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
+
+        var token = login(email);
+        anonymousMockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value(username));
+        anonymousMockMvc.perform(get("/api/v1/jobs"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+    }
+
+    @Test
+    void logoutRevokesTheTokenButNotOtherSessions() throws Exception {
+        var username = newUsername();
+        registerUser(username);
+        var token = login(username);
+        var otherSession = login(username);
+
+        anonymousMockMvc.perform(post("/api/v1/auth/logout").header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isNoContent());
+
+        anonymousMockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        anonymousMockMvc.perform(post("/api/v1/auth/logout").header(HttpHeaders.AUTHORIZATION, bearer(token)))
+                .andExpect(status().isUnauthorized());
+        anonymousMockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(otherSession)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void userEndpointsRequireAdminAndDisablingRevokesExistingTokens() throws Exception {
+        var adminToken = createAdminAndLogin();
+        var username = newUsername();
+        var userId = registerUser(username);
+        var userToken = login(username);
+
+        mockMvc.perform(get("/api/v1/users"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FORBIDDEN"));
+        mockMvc.perform(get("/actuator/metrics"))
+                .andExpect(status().isForbidden());
+        anonymousMockMvc.perform(get("/actuator/health"))
+                .andExpect(status().isOk());
+
+        anonymousMockMvc.perform(get("/api/v1/users").param("size", "100")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[?(@.id == '" + userId + "')].username").value(username));
+        anonymousMockMvc.perform(patch("/api/v1/users/{id}", userId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"enabled\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.enabled").value(false));
+
+        anonymousMockMvc.perform(get("/api/v1/jobs").header(HttpHeaders.AUTHORIZATION, bearer(userToken)))
+                .andExpect(status().isUnauthorized());
+        anonymousMockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginJson(username, PASSWORD)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("INVALID_CREDENTIALS"));
+    }
+
+    @Test
+    void roleChangeInvalidatesTokensIssuedWithTheOldRole() throws Exception {
+        var adminToken = createAdminAndLogin();
+        var username = newUsername();
+        var userId = registerUser(username);
+        var userToken = login(username);
+
+        anonymousMockMvc.perform(patch("/api/v1/users/{id}", userId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"role\":\"ADMIN\"}"))
+                .andExpect(status().isOk());
+
+        anonymousMockMvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, bearer(userToken)))
+                .andExpect(status().isUnauthorized());
+        anonymousMockMvc.perform(get("/api/v1/users").header(HttpHeaders.AUTHORIZATION, bearer(login(username))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void observabilityTokenReachesActuatorOnly() throws Exception {
+        anonymousMockMvc.perform(get("/actuator/metrics")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(OBSERVABILITY_TOKEN)))
+                .andExpect(status().isOk());
+        anonymousMockMvc.perform(get("/actuator/info")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(OBSERVABILITY_TOKEN)))
+                .andExpect(status().isOk());
+        anonymousMockMvc.perform(get("/api/v1/jobs").header(HttpHeaders.AUTHORIZATION, bearer(OBSERVABILITY_TOKEN)))
+                .andExpect(status().isForbidden());
+        anonymousMockMvc.perform(get("/api/v1/users").header(HttpHeaders.AUTHORIZATION, bearer(OBSERVABILITY_TOKEN)))
+                .andExpect(status().isForbidden());
+        anonymousMockMvc.perform(get("/actuator/metrics")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(OBSERVABILITY_TOKEN + "x")))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void jobsAreVisibleOnlyToTheirOwnerAndAdmins() throws Exception {
+        var jobId = createJob("private.mp4", "en", "vi");
+        var otherToken = registerAndLogin();
+        var adminToken = createAdminAndLogin();
+
+        mockMvc.perform(get("/api/v1/jobs/{id}", jobId).header(HttpHeaders.AUTHORIZATION, bearer(otherToken)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("JOB_NOT_FOUND"));
+        mockMvc.perform(patch("/api/v1/jobs/{id}", jobId)
+                        .header(HttpHeaders.AUTHORIZATION, bearer(otherToken))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"stolen\"}"))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(delete("/api/v1/jobs/{id}", jobId).header(HttpHeaders.AUTHORIZATION, bearer(otherToken)))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/api/v1/jobs").header(HttpHeaders.AUTHORIZATION, bearer(otherToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(0));
+        assertThat(jobRepository.findById(jobId)).isPresent();
+
+        mockMvc.perform(get("/api/v1/jobs/{id}", jobId).header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.video.title").value("private"));
+        mockMvc.perform(get("/api/v1/jobs").param("size", "100")
+                        .header(HttpHeaders.AUTHORIZATION, bearer(adminToken)))
+                .andExpect(jsonPath("$.items[?(@.id == '" + jobId + "')]").isNotEmpty());
     }
 
     @Test
@@ -302,6 +504,10 @@ class JobFlowIntegrationTest {
         assertThat(properties.path("targetLanguages").path("items").path("$ref").asString()).endsWith("/LanguageCode");
         assertThat(docs.path("components").path("schemas").path("ApiErrorResponse").path("required").toString())
                 .isEqualTo("[\"code\",\"message\"]");
+        assertThat(docs.path("components").path("securitySchemes").path("bearerAuth").path("scheme").asString())
+                .isEqualTo("bearer");
+        assertThat(docs.path("paths").path("/api/v1/auth/login").path("post").path("security").toString())
+                .isEqualTo("[]");
     }
 
     private UUID createJob(String filename, String sourceLanguage, String... targetLanguages) throws Exception {
@@ -315,6 +521,57 @@ class JobFlowIntegrationTest {
         createdJobIds.add(jobId);
         createdObjectKeys.add(jobRepository.findWithDetailsById(jobId).orElseThrow().getVideo().getStorageKey());
         return jobId;
+    }
+
+    private static String newUsername() {
+        return "it-" + UUID.randomUUID().toString().substring(0, 12);
+    }
+
+    private UUID registerUser(String username) throws Exception {
+        var body = anonymousMockMvc.perform(post("/api/v1/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(registerJson(username, username + "@sinai.test")))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        var userId = UUID.fromString(jsonMapper.readTree(body).path("id").asString());
+        createdUserIds.add(userId);
+        return userId;
+    }
+
+    private String registerAndLogin() throws Exception {
+        var username = newUsername();
+        registerUser(username);
+        return login(username);
+    }
+
+    private String createAdminAndLogin() throws Exception {
+        var username = newUsername();
+        var admin = userRepository.saveAndFlush(UserAccount.create(username, username + "@sinai.test",
+                passwordEncoder.encode(PASSWORD), Role.ADMIN));
+        createdUserIds.add(admin.getId());
+        return login(username);
+    }
+
+    private String login(String login) throws Exception {
+        var body = anonymousMockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(loginJson(login, PASSWORD)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.tokenType").value("Bearer"))
+                .andReturn().getResponse().getContentAsString();
+        return jsonMapper.readTree(body).path("accessToken").asString();
+    }
+
+    private String registerJson(String username, String email) {
+        return jsonMapper.writeValueAsString(Map.of("username", username, "email", email, "password", PASSWORD));
+    }
+
+    private String loginJson(String login, String password) {
+        return jsonMapper.writeValueAsString(Map.of("login", login, "password", password));
+    }
+
+    private static String bearer(String token) {
+        return "Bearer " + token;
     }
 
     private void uploadProcessed(String key, String content) throws Exception {

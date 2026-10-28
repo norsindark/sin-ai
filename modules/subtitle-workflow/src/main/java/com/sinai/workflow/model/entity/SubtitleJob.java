@@ -3,6 +3,7 @@ package com.sinai.workflow.model.entity;
 import com.sinai.common.constant.JobStatus;
 import com.sinai.common.constant.Language;
 import com.sinai.common.exception.ErrorCode;
+import com.sinai.identity.api.CurrentUser;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -20,6 +21,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -41,6 +43,9 @@ public class SubtitleJob {
     @ManyToOne(fetch = FetchType.LAZY, optional = false, cascade = CascadeType.PERSIST)
     @JoinColumn(name = "video_id", nullable = false, updatable = false)
     private Video video;
+
+    @Column(name = "owner_id", updatable = false)
+    private UUID ownerId;
 
     @Column(name = "source_language", nullable = false, updatable = false)
     private Language sourceLanguage;
@@ -87,9 +92,11 @@ public class SubtitleJob {
     @OrderBy("targetLanguage")
     private List<TranslationTask> translationTasks = new ArrayList<>();
 
-    public static SubtitleJob create(Video video, Language sourceLanguage, Collection<Language> targetLanguages) {
+    public static SubtitleJob create(Video video, Language sourceLanguage, Collection<Language> targetLanguages,
+            UUID ownerId) {
         var job = new SubtitleJob();
         job.id = UUID.randomUUID();
+        job.ownerId = ownerId;
         job.video = video;
         job.sourceLanguage = sourceLanguage;
         job.status = JobStatus.PENDING;
@@ -97,6 +104,10 @@ public class SubtitleJob {
             job.translationTasks.add(new TranslationTask(UUID.randomUUID(), job, targetLanguage));
         }
         return job;
+    }
+
+    public boolean isAccessibleBy(CurrentUser user) {
+        return user.isAdmin() || Objects.equals(ownerId, user.id());
     }
 
     public void start() {

@@ -16,5 +16,6 @@ include(
     ":modules:storage-service",
     ":modules:media-processor",
     ":modules:ai-engine",
+    ":modules:identity",
     ":modules:subtitle-workflow"
 )

@@ -5,6 +5,7 @@ import com.sinai.common.constant.Language;
 import com.sinai.common.exception.ErrorCode;
 import com.sinai.common.exception.SinAiException;
 import com.sinai.common.util.TempFileManager;
+import com.sinai.identity.api.CurrentUser;
 import com.sinai.storage.api.ObjectStorage;
 import com.sinai.storage.config.StorageProperties;
 import com.sinai.workflow.config.WorkflowProperties;
@@ -64,7 +65,7 @@ public class JobService {
     private final WorkflowProperties workflowProperties;
     private final TempFileManager tempFileManager;
 
-    public JobResponse createJob(CreateJobRequest request) {
+    public JobResponse createJob(CreateJobRequest request, CurrentUser currentUser) {
         var file = request.file();
         var originalFilename = validateVideo(file);
         var sourceLanguage = Language.fromCode(request.sourceLanguage());
@@ -80,24 +81,28 @@ public class JobService {
         }
         var video = new Video(videoId, originalFilename, FileType.VIDEO.getContentType(), file.getSize(),
                 rawBucket, storageKey);
-        var job = saveOrDiscardUpload(SubtitleJob.create(video, sourceLanguage, targetLanguages));
+        var job = saveOrDiscardUpload(SubtitleJob.create(video, sourceLanguage, targetLanguages,
+                currentUser.id()));
         return toResponse(job);
     }
 
     @Transactional(readOnly = true)
-    public JobResponse getJob(UUID id) {
-        return jobRepository.findWithDetailsById(id)
-                .map(this::toResponse)
-                .orElseThrow(() -> new SinAiException(ErrorCode.JOB_NOT_FOUND, "Job not found: " + id));
+    public JobResponse getJob(UUID id, CurrentUser currentUser) {
+        return toResponse(findAccessibleJob(id, currentUser));
     }
 
     @Transactional
-    public JobResponse renameJob(UUID id, RenameJobRequest request) {
+    public JobResponse renameJob(UUID id, RenameJobRequest request, CurrentUser currentUser) {
         var title = validateTitle(request);
-        var job = jobRepository.findWithDetailsById(id)
-                .orElseThrow(() -> new SinAiException(ErrorCode.JOB_NOT_FOUND, "Job not found: " + id));
+        var job = findAccessibleJob(id, currentUser);
         job.getVideo().rename(title);
         return toResponse(job);
+    }
+
+    private SubtitleJob findAccessibleJob(UUID id, CurrentUser currentUser) {
+        return jobRepository.findWithDetailsById(id)
+                .filter(job -> job.isAccessibleBy(currentUser))
+                .orElseThrow(() -> new SinAiException(ErrorCode.JOB_NOT_FOUND, "Job not found: " + id));
     }
 
     static String validateTitle(RenameJobRequest request) {
@@ -116,7 +121,7 @@ public class JobService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<JobSummaryResponse> listJobs(int page, int size) {
+    public PageResponse<JobSummaryResponse> listJobs(int page, int size, CurrentUser currentUser) {
         if (page < 0) {
             throw new SinAiException(ErrorCode.INVALID_ARGUMENT, "page must not be negative");
         }
@@ -124,7 +129,10 @@ public class JobService {
             throw new SinAiException(ErrorCode.INVALID_ARGUMENT, "size must be between 1 and " + MAX_PAGE_SIZE);
         }
         var sort = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
-        var jobs = jobRepository.findPageWithVideo(PageRequest.of(page, size, sort));
+        var pageable = PageRequest.of(page, size, sort);
+        var jobs = currentUser.isAdmin()
+                ? jobRepository.findPageWithVideo(pageable)
+                : jobRepository.findPageWithVideoByOwnerId(currentUser.id(), pageable);
         var jobIds = jobs.getContent().stream().map(job -> job.getId().toString()).toArray(String[]::new);
         var targetsByJob = ArrayUtils.isEmpty(jobIds)
                 ? Map.<UUID, List<String>>of()

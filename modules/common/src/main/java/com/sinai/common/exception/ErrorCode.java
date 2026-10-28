@@ -20,7 +20,14 @@ public enum ErrorCode {
     TRANSLATION_ERROR(502, "Translation error"),
     NO_SPEECH_DETECTED(422, "No speech detected in the video"),
     JOB_INTERRUPTED(500, "Job was interrupted before completion"),
-    JOB_IN_PROGRESS(409, "Job is still processing");
+    JOB_IN_PROGRESS(409, "Job is still processing"),
+    UNAUTHORIZED(401, "Authentication required"),
+    FORBIDDEN(403, "Access denied"),
+    INVALID_CREDENTIALS(401, "Invalid username or password"),
+    USERNAME_ALREADY_EXISTS(409, "Username is already registered"),
+    EMAIL_ALREADY_EXISTS(409, "Email is already registered"),
+    USER_NOT_FOUND(404, "User not found"),
+    LAST_ADMIN(409, "At least one enabled admin is required");
 
     private final int httpStatus;
     private final String defaultMessage;

@@ -18,6 +18,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.server.observation.OpenTelemetryServerRequestObservationConvention;
 import org.springframework.http.server.observation.ServerRequestObservationContext;
+import org.springframework.security.config.observation.SecurityObservationSettings;
 
 @Configuration
 public class ObservabilityConfig {
@@ -79,6 +80,11 @@ public class ObservabilityConfig {
     @Bean
     public OpenTelemetryJvmClassLoadingMeterConventions openTelemetryJvmClassLoadingMeterConventions() {
         return new OpenTelemetryJvmClassLoadingMeterConventions(Tags.empty());
+    }
+
+    @Bean
+    public SecurityObservationSettings securityObservationSettings() {
+        return SecurityObservationSettings.noObservations();
     }
 
     @Bean

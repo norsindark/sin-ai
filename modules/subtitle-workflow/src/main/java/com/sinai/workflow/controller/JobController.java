@@ -1,5 +1,6 @@
 package com.sinai.workflow.controller;
 
+import com.sinai.identity.api.CurrentUserProvider;
 import com.sinai.workflow.api.JobApi;
 import com.sinai.workflow.model.request.CreateJobRequest;
 import com.sinai.workflow.model.request.RenameJobRequest;
@@ -22,11 +23,13 @@ public class JobController implements JobApi {
 
     private final JobService jobService;
     private final JobDeletionService jobDeletionService;
+    private final CurrentUserProvider currentUserProvider;
 
     @Override
     public ResponseEntity<JobResponse> createJob(MultipartFile file, String sourceLanguage,
             List<String> targetLanguages) {
-        var job = jobService.createJob(new CreateJobRequest(file, sourceLanguage, targetLanguages));
+        var job = jobService.createJob(new CreateJobRequest(file, sourceLanguage, targetLanguages),
+                currentUserProvider.require());
         var location = ServletUriComponentsBuilder.fromCurrentRequestUri()
                 .path("/{id}")
                 .buildAndExpand(job.id())
@@ -36,22 +39,22 @@ public class JobController implements JobApi {
 
     @Override
     public JobResponse getJob(UUID id) {
-        return jobService.getJob(id);
+        return jobService.getJob(id, currentUserProvider.require());
     }
 
     @Override
     public JobResponse renameJob(UUID id, RenameJobRequest request) {
-        return jobService.renameJob(id, request);
+        return jobService.renameJob(id, request, currentUserProvider.require());
     }
 
     @Override
     public ResponseEntity<Void> deleteJob(UUID id) {
-        jobDeletionService.deleteJob(id);
+        jobDeletionService.deleteJob(id, currentUserProvider.require());
         return ResponseEntity.noContent().build();
     }
 
     @Override
     public PageResponse<JobSummaryResponse> listJobs(int page, int size) {
-        return jobService.listJobs(page, size);
+        return jobService.listJobs(page, size, currentUserProvider.require());
     }
 }

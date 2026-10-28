@@ -26,7 +26,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(properties = {"sinai.workflow.worker.enabled=false",
-        "sinai.workflow.temp-directory=${java.io.tmpdir}/sin-ai-test"})
+        "sinai.workflow.temp-directory=${java.io.tmpdir}/sin-ai-test",
+        "sinai.security.jwt.secret=" + JobFlowIntegrationTest.JWT_SECRET, "sinai.security.admin.username=",
+        "sinai.security.admin.email=",
+        "sinai.security.admin.password="})
 @EnabledIf("com.sinai.app.JobFlowIntegrationTest#infrastructureAvailable")
 class JobLifecycleIntegrationTest {
 
@@ -157,7 +160,7 @@ class JobLifecycleIntegrationTest {
     private UUID createPendingJob(Language... targets) {
         var videoId = UUID.randomUUID();
         var video = new Video(videoId, "clip.mp4", "video/mp4", 16, "raw-videos", videoKey(videoId));
-        var jobId = jobRepository.save(SubtitleJob.create(video, Language.ENGLISH, List.of(targets))).getId();
+        var jobId = jobRepository.save(SubtitleJob.create(video, Language.ENGLISH, List.of(targets), null)).getId();
         createdJobIds.add(jobId);
         return jobId;
     }

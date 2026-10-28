@@ -4,6 +4,7 @@ import com.sinai.common.constant.JobStatus;
 import com.sinai.common.constant.Language;
 import com.sinai.common.exception.ErrorCode;
 import com.sinai.common.exception.SinAiException;
+import com.sinai.identity.api.CurrentUser;
 import com.sinai.workflow.model.entity.SubtitleJob;
 import com.sinai.workflow.model.entity.TranslationTask;
 import com.sinai.workflow.repository.SubtitleJobRepository;
@@ -81,8 +82,9 @@ public class JobLifecycleService {
     }
 
     @Transactional
-    public DeletedJob deleteJob(UUID jobId) {
+    public DeletedJob deleteJob(UUID jobId, CurrentUser currentUser) {
         var job = jobRepository.findForUpdateById(jobId)
+                .filter(lockedJob -> lockedJob.isAccessibleBy(currentUser))
                 .orElseThrow(() -> new SinAiException(ErrorCode.JOB_NOT_FOUND, "Job not found: " + jobId));
         if (job.getStatus() == JobStatus.PROCESSING) {
             throw new SinAiException(ErrorCode.JOB_IN_PROGRESS, "Job is still processing: " + jobId);

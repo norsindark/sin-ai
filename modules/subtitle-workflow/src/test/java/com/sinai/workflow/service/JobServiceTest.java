@@ -19,12 +19,16 @@ import com.sinai.common.constant.Language;
 import com.sinai.common.exception.ErrorCode;
 import com.sinai.common.exception.SinAiException;
 import com.sinai.common.util.TempFileManager;
+import com.sinai.identity.api.CurrentUser;
+import com.sinai.identity.api.Role;
 import com.sinai.storage.api.ObjectStorage;
 import com.sinai.storage.config.StorageProperties;
 import com.sinai.workflow.config.WorkflowProperties;
 import com.sinai.workflow.model.entity.SubtitleJob;
 import com.sinai.workflow.model.entity.TranslationTask;
+import com.sinai.workflow.model.entity.Video;
 import com.sinai.workflow.model.request.CreateJobRequest;
+import com.sinai.workflow.model.request.RenameJobRequest;
 import com.sinai.workflow.repository.SubtitleJobRepository;
 import com.sinai.workflow.repository.TranslationTaskRepository;
 import java.nio.charset.StandardCharsets;
@@ -40,10 +44,14 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
+import org.springframework.data.domain.Page;
 import org.springframework.mock.web.MockMultipartFile;
 
 class JobServiceTest {
 
+    private static final CurrentUser OWNER = new CurrentUser(UUID.randomUUID(), "owner@sinai.test", Role.USER);
+    private static final CurrentUser OTHER_USER = new CurrentUser(UUID.randomUUID(), "other@sinai.test", Role.USER);
+    private static final CurrentUser ADMIN = new CurrentUser(UUID.randomUUID(), "admin@sinai.test", Role.ADMIN);
     private static final byte[] MP4_BYTES = {0, 0, 0, 0x18, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm', 0, 0, 0, 1};
 
     @TempDir
@@ -77,7 +85,7 @@ class JobServiceTest {
         }).when(objectStorage).upload(anyString(), anyString(), any(Path.class), anyString());
 
         var response = service.createJob(new CreateJobRequest(video("clip.mp4", MP4_BYTES), "EN",
-                List.of("vi", " ja ")));
+                List.of("vi", " ja ")), OWNER);
 
         var keyCaptor = ArgumentCaptor.forClass(String.class);
         verify(objectStorage).upload(eq("raw-videos"), keyCaptor.capture(), any(Path.class), eq("video/mp4"));
@@ -86,6 +94,7 @@ class JobServiceTest {
         var jobCaptor = ArgumentCaptor.forClass(SubtitleJob.class);
         verify(jobRepository).save(jobCaptor.capture());
         var job = jobCaptor.getValue();
+        assertThat(job.getOwnerId()).isEqualTo(OWNER.id());
         assertThat(job.getStatus()).isEqualTo(JobStatus.PENDING);
         assertThat(job.getSourceLanguage()).isEqualTo(Language.ENGLISH);
         assertThat(job.getVideo().getStorageKey()).isEqualTo(keyCaptor.getValue());
@@ -108,7 +117,7 @@ class JobServiceTest {
                 .when(objectStorage).upload(anyString(), anyString(), any(Path.class), anyString());
 
         assertThatThrownBy(() -> service.createJob(new CreateJobRequest(video("clip.mp4", MP4_BYTES), "en",
-                List.of("vi"))))
+                List.of("vi")), OWNER))
                 .isInstanceOfSatisfying(SinAiException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.STORAGE_ERROR));
         verify(jobRepository, never()).save(any());
@@ -121,7 +130,7 @@ class JobServiceTest {
         when(jobRepository.save(any(SubtitleJob.class))).thenThrow(saveFailure);
 
         assertThatThrownBy(() -> service.createJob(new CreateJobRequest(video("clip.mp4", MP4_BYTES), "en",
-                List.of("vi"))))
+                List.of("vi")), OWNER))
                 .isSameAs(saveFailure);
         var key = ArgumentCaptor.forClass(String.class);
         verify(objectStorage).upload(eq("raw-videos"), key.capture(), any(Path.class), eq("video/mp4"));
@@ -137,7 +146,7 @@ class JobServiceTest {
         doThrow(deleteFailure).when(objectStorage).delete(anyString(), anyString());
 
         assertThatThrownBy(() -> service.createJob(new CreateJobRequest(video("clip.mp4", MP4_BYTES), "en",
-                List.of("vi"))))
+                List.of("vi")), OWNER))
                 .isSameAs(saveFailure)
                 .hasSuppressedException(deleteFailure);
     }
@@ -155,7 +164,7 @@ class JobServiceTest {
             ErrorCode expected) {
         var request = new CreateJobRequest(video(filename, MP4_BYTES), source, List.of(targets.split(",")));
 
-        assertThatThrownBy(() -> service.createJob(request))
+        assertThatThrownBy(() -> service.createJob(request, OWNER))
                 .isInstanceOfSatisfying(SinAiException.class, e -> assertThat(e.getErrorCode()).isEqualTo(expected));
         verifyNoInteractions(objectStorage);
         verify(jobRepository, never()).save(any());
@@ -164,14 +173,14 @@ class JobServiceTest {
     @Test
     void createJobRejectsMissingTargetsAndEmptyFile() {
         assertThatThrownBy(() -> service.createJob(new CreateJobRequest(video("clip.mp4", MP4_BYTES), "en",
-                List.of())))
+                List.of()), OWNER))
                 .isInstanceOfSatisfying(SinAiException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.INVALID_ARGUMENT));
         assertThatThrownBy(() -> service.createJob(new CreateJobRequest(video("clip.mp4", new byte[0]), "en",
-                List.of("vi"))))
+                List.of("vi")), OWNER))
                 .isInstanceOfSatisfying(SinAiException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.INVALID_ARGUMENT));
-        assertThatThrownBy(() -> service.createJob(new CreateJobRequest(null, "en", List.of("vi"))))
+        assertThatThrownBy(() -> service.createJob(new CreateJobRequest(null, "en", List.of("vi")), OWNER))
                 .isInstanceOfSatisfying(SinAiException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.INVALID_ARGUMENT));
         verifyNoInteractions(objectStorage);
@@ -182,7 +191,7 @@ class JobServiceTest {
         var request = new CreateJobRequest(video("clip.mp4", "plain text, not a video".getBytes(
                 StandardCharsets.UTF_8)), "en", List.of("vi"));
 
-        assertThatThrownBy(() -> service.createJob(request))
+        assertThatThrownBy(() -> service.createJob(request, OWNER))
                 .isInstanceOfSatisfying(SinAiException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.UNSUPPORTED_FILE_TYPE));
         verifyNoInteractions(objectStorage);
@@ -194,7 +203,7 @@ class JobServiceTest {
         var id = UUID.randomUUID();
         when(jobRepository.findWithDetailsById(id)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.getJob(id))
+        assertThatThrownBy(() -> service.getJob(id, OWNER))
                 .isInstanceOfSatisfying(SinAiException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.JOB_NOT_FOUND));
     }
@@ -202,10 +211,50 @@ class JobServiceTest {
     @ParameterizedTest
     @CsvSource({"-1, 20", "0, 0", "0, 101"})
     void listJobsRejectsInvalidPaging(int page, int size) {
-        assertThatThrownBy(() -> service.listJobs(page, size))
+        assertThatThrownBy(() -> service.listJobs(page, size, OWNER))
                 .isInstanceOfSatisfying(SinAiException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.INVALID_ARGUMENT));
         verifyNoInteractions(jobRepository, taskRepository);
+    }
+
+    @Test
+    void getAndRenameHideJobsOfOtherUsers() {
+        var job = ownedJob(OWNER);
+        when(jobRepository.findWithDetailsById(job.getId())).thenReturn(Optional.of(job));
+
+        assertThatThrownBy(() -> service.getJob(job.getId(), OTHER_USER))
+                .isInstanceOfSatisfying(SinAiException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.JOB_NOT_FOUND));
+        assertThatThrownBy(() -> service.renameJob(job.getId(), new RenameJobRequest("New"), OTHER_USER))
+                .isInstanceOfSatisfying(SinAiException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(ErrorCode.JOB_NOT_FOUND));
+        assertThat(job.getVideo().getTitle()).isEqualTo("clip");
+    }
+
+    @Test
+    void getJobAllowsOwnerAndAdmin() {
+        var job = ownedJob(OWNER);
+        when(jobRepository.findWithDetailsById(job.getId())).thenReturn(Optional.of(job));
+
+        assertThat(service.getJob(job.getId(), OWNER).id()).isEqualTo(job.getId());
+        assertThat(service.getJob(job.getId(), ADMIN).id()).isEqualTo(job.getId());
+    }
+
+    @Test
+    void listJobsFiltersByOwnerForUsersOnly() {
+        when(jobRepository.findPageWithVideoByOwnerId(eq(OWNER.id()), any())).thenReturn(Page.empty());
+        when(jobRepository.findPageWithVideo(any())).thenReturn(Page.empty());
+
+        service.listJobs(0, 20, OWNER);
+        service.listJobs(0, 20, ADMIN);
+
+        verify(jobRepository).findPageWithVideoByOwnerId(eq(OWNER.id()), any());
+        verify(jobRepository).findPageWithVideo(any());
+    }
+
+    private static SubtitleJob ownedJob(CurrentUser owner) {
+        var video = new Video(UUID.randomUUID(), "clip.mp4", "video/mp4", 10, "raw-videos", "videos/x/source.mp4");
+        return SubtitleJob.create(video, Language.ENGLISH, List.of(Language.VIETNAMESE), owner.id());
     }
 
     @ParameterizedTest

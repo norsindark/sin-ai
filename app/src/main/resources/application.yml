@@ -67,6 +67,17 @@ springdoc:
     path: /swagger-ui.html
 
 sinai:
+  security:
+    jwt:
+      secret: ${SINAI_JWT_SECRET:}
+      issuer: sin-ai
+      access-token-ttl: ${SINAI_JWT_TTL:1h}
+    admin:
+      username: ${SINAI_ADMIN_USERNAME:}
+      email: ${SINAI_ADMIN_EMAIL:}
+      password: ${SINAI_ADMIN_PASSWORD:}
+    observability:
+      token: ${SINAI_OBSERVABILITY_TOKEN:}
   storage:
     endpoint: http://localhost:${STORAGE_API_PORT:9000}
     access-key: ${STORAGE_APP_ACCESS_KEY}

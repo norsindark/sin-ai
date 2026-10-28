@@ -1,6 +1,7 @@
 package com.sinai.workflow.service;
 
 import com.sinai.common.exception.SinAiException;
+import com.sinai.identity.api.CurrentUser;
 import com.sinai.storage.api.ObjectStorage;
 import com.sinai.storage.config.StorageProperties;
 import java.util.UUID;
@@ -17,8 +18,8 @@ public class JobDeletionService {
     private final ObjectStorage objectStorage;
     private final StorageProperties storageProperties;
 
-    public void deleteJob(UUID jobId) {
-        var deletedJob = lifecycle.deleteJob(jobId);
+    public void deleteJob(UUID jobId, CurrentUser currentUser) {
+        var deletedJob = lifecycle.deleteJob(jobId, currentUser);
         deleteQuietly(deletedJob.videoBucket(), deletedJob.videoKey());
         var processedBucket = storageProperties.processedBucket();
         deleteQuietly(processedBucket, JobPipeline.outputVideoKey(jobId));

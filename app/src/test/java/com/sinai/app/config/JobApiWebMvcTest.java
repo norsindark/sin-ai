@@ -6,7 +6,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
+import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -18,6 +21,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.sinai.common.constant.JobStatus;
 import com.sinai.common.exception.ErrorCode;
 import com.sinai.common.exception.SinAiException;
+import com.sinai.identity.api.CurrentUser;
+import com.sinai.identity.api.CurrentUserProvider;
+import com.sinai.identity.api.Role;
+import com.sinai.identity.config.SecurityConfig;
+import com.sinai.identity.repository.TokenStateRepository;
 import com.sinai.workflow.controller.JobController;
 import com.sinai.workflow.model.request.CreateJobRequest;
 import com.sinai.workflow.model.request.RenameJobRequest;
@@ -29,6 +37,7 @@ import com.sinai.workflow.service.JobService;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,19 +45,32 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
-@WebMvcTest(JobController.class)
-@Import(GlobalExceptionHandler.class)
+@WebMvcTest(controllers = JobController.class,
+        properties = "sinai.security.jwt.secret=0123456789abcdef0123456789abcdef")
+@Import({GlobalExceptionHandler.class, SecurityConfig.class, CurrentUserProvider.class})
 class JobApiWebMvcTest {
 
     private static final MockMultipartFile VIDEO = new MockMultipartFile("file", "clip.mp4", "video/mp4",
             new byte[] {1, 2, 3});
+    private static final CurrentUser USER = new CurrentUser(UUID.randomUUID(), "user", Role.USER);
 
     @Autowired
+    private MockMvc anonymousMockMvc;
+
+    @Autowired
+    private WebApplicationContext context;
+
     private MockMvc mockMvc;
+
+    @MockitoBean
+    private TokenStateRepository tokenStateRepository;
 
     @MockitoBean
     private JobService jobService;
@@ -56,10 +78,41 @@ class JobApiWebMvcTest {
     @MockitoBean
     private JobDeletionService jobDeletionService;
 
+    @BeforeEach
+    void setUp() {
+        var userJwt = jwt()
+                .jwt(token -> token.subject(USER.id().toString())
+                        .claim(SecurityConfig.USERNAME_CLAIM, USER.username())
+                        .claim(SecurityConfig.ROLES_CLAIM, List.of(USER.role().name())))
+                .authorities(new SimpleGrantedAuthority(USER.role().authority()));
+        mockMvc = MockMvcBuilders.webAppContextSetup(context)
+                .apply(springSecurity())
+                .defaultRequest(get("/").with(userJwt))
+                .build();
+    }
+
+    @Test
+    void requestWithoutTokenIsRejectedWithJsonUnauthorized() throws Exception {
+        anonymousMockMvc.perform(get("/api/v1/jobs"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("WWW-Authenticate", "Bearer"))
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+                .andExpect(jsonPath("$.message").value("Authentication required"));
+        verifyNoInteractions(jobService);
+    }
+
+    @Test
+    void invalidBearerTokenIsRejectedWithJsonUnauthorized() throws Exception {
+        anonymousMockMvc.perform(get("/api/v1/jobs").header("Authorization", "Bearer not-a-jwt"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        verifyNoInteractions(jobService);
+    }
+
     @Test
     void createJobBindsMultipartFieldsAndReturnsCreated() throws Exception {
         var job = sampleJob();
-        when(jobService.createJob(any())).thenReturn(job);
+        when(jobService.createJob(any(), any())).thenReturn(job);
 
         mockMvc.perform(multipart("/api/v1/jobs")
                         .file(VIDEO)
@@ -73,7 +126,7 @@ class JobApiWebMvcTest {
                 .andExpect(jsonPath("$.translations").isEmpty());
 
         var captor = ArgumentCaptor.forClass(CreateJobRequest.class);
-        verify(jobService).createJob(captor.capture());
+        verify(jobService).createJob(captor.capture(), eq(USER));
         assertThat(captor.getValue().sourceLanguage()).isEqualTo("en");
         assertThat(captor.getValue().targetLanguages()).containsExactly("vi", "ja");
         assertThat(captor.getValue().file().getOriginalFilename()).isEqualTo("clip.mp4");
@@ -81,7 +134,7 @@ class JobApiWebMvcTest {
 
     @Test
     void clientErrorFromServiceKeepsCodeAndMessage() throws Exception {
-        when(jobService.createJob(any()))
+        when(jobService.createJob(any(), any()))
                 .thenThrow(new SinAiException(ErrorCode.UNSUPPORTED_LANGUAGE, "Unsupported language: xx"));
 
         mockMvc.perform(multipart("/api/v1/jobs").file(VIDEO).param("sourceLanguage", "xx")
@@ -93,7 +146,7 @@ class JobApiWebMvcTest {
 
     @Test
     void serverErrorFromServiceHidesInternalMessage() throws Exception {
-        when(jobService.createJob(any()))
+        when(jobService.createJob(any(), any()))
                 .thenThrow(new SinAiException(ErrorCode.STORAGE_ERROR, "Failed to upload raw-videos/secret-key"));
 
         mockMvc.perform(multipart("/api/v1/jobs").file(VIDEO).param("sourceLanguage", "en")
@@ -105,7 +158,7 @@ class JobApiWebMvcTest {
 
     @Test
     void unexpectedErrorMapsToInternalError() throws Exception {
-        when(jobService.getJob(any())).thenThrow(new IllegalStateException("db password is hunter2"));
+        when(jobService.getJob(any(), any())).thenThrow(new IllegalStateException("db password is hunter2"));
 
         mockMvc.perform(get("/api/v1/jobs/{id}", UUID.randomUUID()))
                 .andExpect(status().isInternalServerError())
@@ -115,7 +168,7 @@ class JobApiWebMvcTest {
 
     @Test
     void uploadSizeExceededMapsToFileTooLarge() throws Exception {
-        when(jobService.createJob(any())).thenThrow(new MaxUploadSizeExceededException(500L));
+        when(jobService.createJob(any(), any())).thenThrow(new MaxUploadSizeExceededException(500L));
 
         mockMvc.perform(multipart("/api/v1/jobs").file(VIDEO).param("sourceLanguage", "en")
                         .param("targetLanguages", "vi"))
@@ -146,7 +199,8 @@ class JobApiWebMvcTest {
     @Test
     void jobNotFoundMapsTo404() throws Exception {
         var id = UUID.randomUUID();
-        when(jobService.getJob(id)).thenThrow(new SinAiException(ErrorCode.JOB_NOT_FOUND, "Job not found: " + id));
+        when(jobService.getJob(eq(id), any()))
+                .thenThrow(new SinAiException(ErrorCode.JOB_NOT_FOUND, "Job not found: " + id));
 
         mockMvc.perform(get("/api/v1/jobs/{id}", id))
                 .andExpect(status().isNotFound())
@@ -164,7 +218,7 @@ class JobApiWebMvcTest {
     @Test
     void renameJobReadsJsonTitle() throws Exception {
         var job = sampleJob();
-        when(jobService.renameJob(any(), any())).thenReturn(job);
+        when(jobService.renameJob(any(), any(), any())).thenReturn(job);
 
         mockMvc.perform(patch("/api/v1/jobs/{id}", job.id())
                         .contentType(MediaType.APPLICATION_JSON)
@@ -173,13 +227,13 @@ class JobApiWebMvcTest {
                 .andExpect(jsonPath("$.video.title").value("clip"));
 
         var captor = ArgumentCaptor.forClass(RenameJobRequest.class);
-        verify(jobService).renameJob(eq(job.id()), captor.capture());
+        verify(jobService).renameJob(eq(job.id()), captor.capture(), eq(USER));
         assertThat(captor.getValue().title()).isEqualTo("Họp nhóm tuần 3");
     }
 
     @Test
     void renameJobRejectsInvalidTitle() throws Exception {
-        when(jobService.renameJob(any(), any()))
+        when(jobService.renameJob(any(), any(), any()))
                 .thenThrow(new SinAiException(ErrorCode.INVALID_ARGUMENT, "title must not be blank"));
 
         mockMvc.perform(patch("/api/v1/jobs/{id}", UUID.randomUUID())
@@ -196,14 +250,14 @@ class JobApiWebMvcTest {
         mockMvc.perform(delete("/api/v1/jobs/{id}", id))
                 .andExpect(status().isNoContent());
 
-        verify(jobDeletionService).deleteJob(id);
+        verify(jobDeletionService).deleteJob(id, USER);
     }
 
     @Test
     void deleteProcessingJobMapsToConflict() throws Exception {
         var id = UUID.randomUUID();
         doThrow(new SinAiException(ErrorCode.JOB_IN_PROGRESS, "Job is still processing: " + id))
-                .when(jobDeletionService).deleteJob(id);
+                .when(jobDeletionService).deleteJob(eq(id), any());
 
         mockMvc.perform(delete("/api/v1/jobs/{id}", id))
                 .andExpect(status().isConflict())
@@ -214,7 +268,7 @@ class JobApiWebMvcTest {
     void deleteUnknownJobMapsTo404() throws Exception {
         var id = UUID.randomUUID();
         doThrow(new SinAiException(ErrorCode.JOB_NOT_FOUND, "Job not found: " + id))
-                .when(jobDeletionService).deleteJob(id);
+                .when(jobDeletionService).deleteJob(eq(id), any());
 
         mockMvc.perform(delete("/api/v1/jobs/{id}", id))
                 .andExpect(status().isNotFound())
@@ -223,7 +277,7 @@ class JobApiWebMvcTest {
 
     @Test
     void listUsesDefaultPaging() throws Exception {
-        when(jobService.listJobs(0, 20)).thenReturn(new PageResponse<>(
+        when(jobService.listJobs(eq(0), eq(20), any())).thenReturn(new PageResponse<>(
                 List.of(), 0, 20, 0, 0));
 
         mockMvc.perform(get("/api/v1/jobs"))

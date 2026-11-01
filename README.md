@@ -81,7 +81,7 @@ feature branch --PR (squash)--> dev --PR (merge commit)--> main --tag vX.Y.Z--> 
 |---|---|---|---|
 | CI | `.github/workflows/ci.yml` | push to `dev`/`main`, every PR | `test` |
 | Release | `.github/workflows/release.yml` | push to `main`, tags `v*.*.*`, every PR (build only) | `image` |
-| Deploy | `.github/workflows/deploy.yml` | manual run; PRs touching deploy files (rehearsal) | `deploy`, `rehearse` |
+| Deploy | `.github/workflows/deploy.yml` | manual run; PRs touching deploy files (rehearsal) | `precheck`, `deploy`, `rehearse` |
 
 ### Branches
 
@@ -140,7 +140,7 @@ Release steps:
 
 ### Deploy
 
-- Actions > Deploy > Run workflow > version (`0.1.0` or `main-<sha7>`). The job validates the version, checks the image exists, waits for approval of the `production` environment, uploads the deploy bundle over SSH and runs `deploy/deploy.sh` (pull, database backup, start, healthcheck, history).
+- Actions > Deploy > Run workflow > version (`0.1.0` or `main-<sha7>`). The `precheck` job validates the version and checks that the image exists, so a typo fails before anyone is asked to approve. The `deploy` job then waits for approval of the `production` environment (an environment gate blocks the whole job before its first step), uploads the deploy bundle over SSH and runs `deploy/deploy.sh` (pull, database backup, start, healthcheck, history).
 - Roll back by running Deploy again with an older version. Nothing is rebuilt and the database is not restored, so migrations must be expand/contract (add first, drop or rename in a later release).
 - Pull requests touching `deploy/**` run the `rehearse` job on a runner: deploy, deploy another version, roll back, then check version, history, backups and health.
 - Server setup, secrets, backups, restore and known gaps: [`deploy/README.md`](deploy/README.md).

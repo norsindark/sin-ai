@@ -69,8 +69,24 @@ jobs:
           test "$running_image" = "$IMAGE:0.1.0"
           curl -fsS -o /dev/null http://localhost:8080/v3/api-docs
 
-  deploy:
+  precheck:
     if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Validate the version
+        run: |
+          if [[ ! "$VERSION" =~ $VERSION_PATTERN ]]; then
+            echo "::error::Invalid version '$VERSION' (expected 1.2.3, 1.2.3-rc.1 or main-<sha7>)"
+            exit 1
+          fi
+      - name: Check that the image exists
+        run: docker manifest inspect "$IMAGE:$VERSION" > /dev/null
+
+  deploy:
+    needs: precheck
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
@@ -81,14 +97,6 @@ jobs:
       VERSION: ${{ inputs.version }}
       DEPLOY_DIR: /opt/sin-ai
     steps:
-      - name: Validate the version
-        run: |
-          if [[ ! "$VERSION" =~ $VERSION_PATTERN ]]; then
-            echo "::error::Invalid version '$VERSION' (expected 1.2.3, 1.2.3-rc.1 or main-<sha7>)"
-            exit 1
-          fi
-      - name: Check that the image exists
-        run: docker manifest inspect "$IMAGE:$VERSION" > /dev/null
       - uses: actions/checkout@v7
       - run: bash deploy/bundle.sh "$RUNNER_TEMP/bundle"
       - name: Configure SSH

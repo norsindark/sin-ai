@@ -2,6 +2,10 @@ plugins {
     id("spring-boot-conventions")
 }
 
+springBoot {
+    buildInfo()
+}
+
 dependencies {
     implementation(project(":modules:common"))
     implementation(project(":modules:storage-service"))

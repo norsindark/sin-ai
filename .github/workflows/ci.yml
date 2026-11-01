@@ -16,6 +16,20 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      RUN_INTEGRATION: ${{ github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository }}
+      COMPOSE_FILE: docker/docker-compose.yml
+      SIN_AI_DB_PASSWORD: ci-db-password
+      STORAGE_ROOT_USER: ci-root
+      STORAGE_ROOT_PASSWORD: ci-root-password
+      STORAGE_APP_ACCESS_KEY: ci-app
+      STORAGE_APP_SECRET_KEY: ci-app-secret-key
+      STORAGE_CORS_ORIGIN: http://localhost:5173
+      MINIO_LICENSE: ${{ secrets.MINIO_LICENSE }}
+      WHISPER_MODEL: unused-in-ci
+      OLLAMA_MODEL: unused-in-ci
+      SINAI_JWT_SECRET: unused-in-ci-0123456789abcdef0123
+      SINAI_OTEL_ENABLED: "false"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -26,10 +40,30 @@ jobs:
             21
       - uses: gradle/actions/setup-gradle@v6
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Start Postgres and MinIO
+        if: env.RUN_INTEGRATION == 'true'
+        run: |
+          docker compose up -d --wait postgres storage
+          docker compose run --rm storage-init
       - run: >-
           ./gradlew test --console=plain
           -Dorg.gradle.java.installations.paths="$JAVA_HOME_27_X64"
           -Dorg.gradle.java.installations.auto-download=false
+      - name: Fail if integration tests were skipped
+        if: env.RUN_INTEGRATION == 'true'
+        run: |
+          for report in \
+            app/build/test-results/test/TEST-com.sinai.app.JobFlowIntegrationTest.xml \
+            app/build/test-results/test/TEST-com.sinai.app.JobLifecycleIntegrationTest.xml \
+            modules/storage-service/build/test-results/test/TEST-com.sinai.storage.internal.MinioObjectStorageIntegrationTest.xml
+          do
+            if ! grep -m1 '<testsuite ' "$report" | grep -q 'skipped="0"'; then
+              echo "::error file=$report::integration tests were skipped or did not run"
+              exit 1
+            fi
+          done
+      - if: failure() && env.RUN_INTEGRATION == 'true'
+        run: docker compose logs postgres storage storage-init
       - if: always()
         uses: actions/upload-artifact@v7
         with:

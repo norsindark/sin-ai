@@ -33,7 +33,7 @@ The `Deploy` workflow (`.github/workflows/deploy.yml`) deploys one image version
 
 ## Deploy and roll back
 
-- Deploy: Actions > Deploy > Run workflow > version `0.1.0` (a release) or `main-<sha7>` (a main build). Approve the `production` environment when asked.
+- Deploy: Actions > Deploy > Run workflow > version `0.1.0` (a release) or `main-<sha7>` (a main build). The `precheck` job validates the version and checks the image on ghcr.io first; then approve the `production` environment when asked, and the `deploy` job uploads the files and runs `deploy.sh`.
 - Roll back: run the same workflow with the previous version. Nothing is rebuilt.
 - A failed deploy is not rolled back automatically: the failing container stays and `version.env` keeps the last good version. Run Deploy again with that version.
 - History: `/opt/sin-ai/deploy-history.log`; current version: `/opt/sin-ai/version.env`.

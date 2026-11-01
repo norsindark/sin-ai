@@ -46,6 +46,12 @@ jobs:
           MINIO_LICENSE=$MINIO_LICENSE
           SINAI_JWT_SECRET=ci-jwt-secret-0123456789abcdef0123
           EOF
+      - name: Reject an invalid version and find a released image
+        run: |
+          if bash "$SERVER_DIR/deploy.sh" '0.1.0;id'; then
+            exit 1
+          fi
+          docker manifest inspect "$IMAGE:0.1.0" > /dev/null
       - name: First deploy (no database yet, so no backup)
         run: bash "$SERVER_DIR/deploy.sh" 0.1.0
       - name: Deploy another version (takes a backup)

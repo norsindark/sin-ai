@@ -120,8 +120,8 @@ Versions follow SemVer `vMAJOR.MINOR.PATCH` and come from git tags only.
 | Event | Tags on `ghcr.io/norsindark/sin-ai` |
 |---|---|
 | Tag `v1.2.3` | `1.2.3`, `1.2`, `sha-<sha7>` |
-| Push to `main` | `main-<sha7>`, `main` |
-| Pull request | built, not pushed |
+| Push to `main` | `main-<sha7>`, `main`, `sha-<sha7>` |
+| Pull request | built as `sha-<sha7>` (the version passed to the build), not pushed |
 
 There is no `latest` tag. The version reaches Gradle as the `APP_VERSION` build arg (`-Pversion`), so `META-INF/build-info.properties` and `/actuator/info` report it; local compose builds get `0.0.0-local`.
 

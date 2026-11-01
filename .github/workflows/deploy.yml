@@ -1,0 +1,108 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Image version to deploy, e.g. 0.1.0 (rollback = deploy an older version)"
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - "deploy/**"
+      - "docker/minio/init-storage.sh"
+      - "docker/postgres/init/**"
+      - ".github/workflows/deploy.yml"
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/norsindark/sin-ai
+  VERSION_PATTERN: '^([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?|main-[0-9a-f]{7})$'
+
+jobs:
+  rehearse:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MINIO_LICENSE: ${{ secrets.MINIO_LICENSE }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare a fake server directory
+        run: |
+          SERVER_DIR="$RUNNER_TEMP/sin-ai"
+          echo "SERVER_DIR=$SERVER_DIR" >> "$GITHUB_ENV"
+          bash deploy/bundle.sh "$SERVER_DIR"
+          cat > "$SERVER_DIR/.env" <<EOF
+          SIN_AI_DB_PASSWORD=ci-db-password
+          STORAGE_ROOT_USER=ci-root
+          STORAGE_ROOT_PASSWORD=ci-root-password
+          STORAGE_APP_ACCESS_KEY=ci-app
+          STORAGE_APP_SECRET_KEY=ci-app-secret-key
+          STORAGE_CORS_ORIGIN=http://localhost:5173
+          STORAGE_PUBLIC_ENDPOINT=http://localhost:9000
+          MINIO_LICENSE=$MINIO_LICENSE
+          SINAI_JWT_SECRET=ci-jwt-secret-0123456789abcdef0123
+          EOF
+      - name: First deploy (no database yet, so no backup)
+        run: bash "$SERVER_DIR/deploy.sh" 0.1.0
+      - name: Deploy another version (takes a backup)
+        run: bash "$SERVER_DIR/deploy.sh" main-06769ec
+      - name: Roll back
+        run: bash "$SERVER_DIR/deploy.sh" 0.1.0
+      - name: Check the result
+        run: |
+          cd "$SERVER_DIR"
+          cat deploy-history.log
+          grep -qx 'APP_VERSION=0.1.0' version.env
+          test "$(wc -l < deploy-history.log)" -eq 3
+          test "$(find backups -name 'sinai-*.sql.gz' | wc -l)" -eq 2
+          running_image="$(docker inspect --format '{{.Config.Image}}' sin-ai-prod-app-1)"
+          test "$running_image" = "$IMAGE:0.1.0"
+          curl -fsS -o /dev/null http://localhost:8080/v3/api-docs
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      VERSION: ${{ inputs.version }}
+      DEPLOY_DIR: /opt/sin-ai
+    steps:
+      - name: Validate the version
+        run: |
+          if [[ ! "$VERSION" =~ $VERSION_PATTERN ]]; then
+            echo "::error::Invalid version '$VERSION' (expected 1.2.3, 1.2.3-rc.1 or main-<sha7>)"
+            exit 1
+          fi
+      - name: Check that the image exists
+        run: docker manifest inspect "$IMAGE:$VERSION" > /dev/null
+      - uses: actions/checkout@v7
+      - run: bash deploy/bundle.sh "$RUNNER_TEMP/bundle"
+      - name: Configure SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Upload the deploy files
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          tar -C "$RUNNER_TEMP/bundle" -czf - . \
+            | ssh -i ~/.ssh/deploy_key "$VPS_USER@$VPS_HOST" "mkdir -p '$DEPLOY_DIR' && tar -C '$DEPLOY_DIR' -xzf -"
+      - name: Deploy
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: ssh -i ~/.ssh/deploy_key "$VPS_USER@$VPS_HOST" "bash '$DEPLOY_DIR/deploy.sh' '$VERSION'"

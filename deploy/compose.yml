@@ -1,0 +1,100 @@
+name: sin-ai-prod
+
+volumes:
+  postgres-data:
+  storage-data:
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: sinai
+      POSTGRES_USER: sinai
+      POSTGRES_PASSWORD: ${SIN_AI_DB_PASSWORD:?}
+      TZ: UTC
+      PGTZ: UTC
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sinai -d sinai"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  storage:
+    image: quay.io/minio/aistor/minio:RELEASE.2026-09-19T17-05-25Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_REGION: us-east-1
+      MINIO_BROWSER: "on"
+      MINIO_ROOT_USER: ${STORAGE_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${STORAGE_ROOT_PASSWORD:?}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${STORAGE_CORS_ORIGIN:?}
+      MINIO_LICENSE: ${MINIO_LICENSE:?}
+    ports:
+      - "127.0.0.1:${STORAGE_API_PORT:-9000}:9000"
+      - "127.0.0.1:${STORAGE_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - storage-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  storage-init:
+    image: quay.io/minio/aistor/mc:RELEASE.2026-09-19T15-24-59Z
+    entrypoint: ["/bin/sh", "/init-storage.sh"]
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${STORAGE_ROOT_PASSWORD:?}
+      STORAGE_APP_ACCESS_KEY: ${STORAGE_APP_ACCESS_KEY:?}
+      STORAGE_APP_SECRET_KEY: ${STORAGE_APP_SECRET_KEY:?}
+      STORAGE_RAW_BUCKET: ${STORAGE_RAW_BUCKET:-raw-videos}
+      STORAGE_PROCESSED_BUCKET: ${STORAGE_PROCESSED_BUCKET:-processed-videos}
+    volumes:
+      - ./init-storage.sh:/init-storage.sh:ro
+    depends_on:
+      storage:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    image: ghcr.io/norsindark/sin-ai:${APP_VERSION:?}
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/sinai
+      SIN_AI_DB_PASSWORD: ${SIN_AI_DB_PASSWORD:?}
+      SINAI_STORAGE_ENDPOINT: http://storage:9000
+      SINAI_STORAGE_PUBLICENDPOINT: ${STORAGE_PUBLIC_ENDPOINT:?}
+      STORAGE_APP_ACCESS_KEY: ${STORAGE_APP_ACCESS_KEY:?}
+      STORAGE_APP_SECRET_KEY: ${STORAGE_APP_SECRET_KEY:?}
+      STORAGE_RAW_BUCKET: ${STORAGE_RAW_BUCKET:-raw-videos}
+      STORAGE_PROCESSED_BUCKET: ${STORAGE_PROCESSED_BUCKET:-processed-videos}
+      SINAI_OTEL_ENABLED: ${SINAI_OTEL_ENABLED:-false}
+      SINAI_JWT_SECRET: ${SINAI_JWT_SECRET:?}
+      SINAI_JWT_TTL: ${SINAI_JWT_TTL:-1h}
+      SINAI_ADMIN_USERNAME: ${SINAI_ADMIN_USERNAME:-}
+      SINAI_ADMIN_EMAIL: ${SINAI_ADMIN_EMAIL:-}
+      SINAI_ADMIN_PASSWORD: ${SINAI_ADMIN_PASSWORD:-}
+      SINAI_OBSERVABILITY_TOKEN: ${SINAI_OBSERVABILITY_TOKEN:-}
+      SINAI_REFRESH_TTL: ${SINAI_REFRESH_TTL:-14d}
+      SINAI_REFRESH_COOKIE_SECURE: ${SINAI_REFRESH_COOKIE_SECURE:-true}
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/v3/api-docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
+    restart: unless-stopped

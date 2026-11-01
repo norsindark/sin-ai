@@ -1,6 +1,7 @@
 FROM eclipse-temurin:27_35-jdk AS jdk27
 
 FROM eclipse-temurin:21.0.10_7-jdk AS build
+ARG APP_VERSION=0.0.0-local
 COPY --from=jdk27 /opt/java/openjdk /opt/jdk27
 WORKDIR /workspace
 COPY gradlew settings.gradle.kts build.gradle.kts gradle.properties ./
@@ -9,7 +10,7 @@ COPY build-logic build-logic
 COPY app app
 COPY modules modules
 RUN --mount=type=cache,target=/root/.gradle \
-    sh ./gradlew :app:bootJar --no-daemon --console=plain \
+    sh ./gradlew :app:bootJar --no-daemon --console=plain -Pversion="$APP_VERSION" \
         -Dorg.gradle.java.installations.paths=/opt/jdk27 \
         -Dorg.gradle.java.installations.auto-download=false \
     && find app/build/libs -name '*.jar' ! -name '*-plain.jar' -exec cp {} /workspace/app.jar \;

@@ -1,0 +1,51 @@
+# Weekly version-update PRs. All PRs target dev, never main (see README, CI/CD).
+# Dependabot runs do not get Actions secrets: MINIO_LICENSE must also exist as a
+# Dependabot secret, or CI and the deploy rehearsal fail on these PRs.
+version: 2
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: gradle
+    directory: /
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      gradle-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directory: /docker/app
+    target-branch: dev
+    schedule:
+      interval: weekly
+    ignore:
+      # The JDK majors are pinned on purpose (build runs on 21, toolchain and runtime on 27).
+      - dependency-name: eclipse-temurin
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: docker-compose
+    directories: [/docker, /deploy]
+    target-branch: dev
+    schedule:
+      interval: weekly
+    groups:
+      compose-images:
+        update-types: [minor, patch]
+    ignore:
+      # A new Postgres major needs a data migration, not a tag bump.
+      - dependency-name: postgres
+        update-types: [version-update:semver-major]
+      # AIStor uses RELEASE.<timestamp> tags tied to the license; upgrade by hand.
+      - dependency-name: "*minio/aistor*"
+      # Our own images: built locally or released from this repository.
+      - dependency-name: sin-ai-app
+      - dependency-name: "*norsindark/sin-ai*"

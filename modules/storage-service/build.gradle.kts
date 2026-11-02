@@ -8,7 +8,7 @@ dependencies {
     implementation(libs.minio)
     constraints {
         implementation(libs.bcprov) {
-            because("minio 8.x pulls bcprov 1.78.1 with CRITICAL CVE-2025-14813 and CVE-2026-8763")
+            because("minio 8.x pulls bcprov 1.78.1-1.81, affected by CRITICAL CVE-2025-14813 and CVE-2026-8763")
         }
     }
 }

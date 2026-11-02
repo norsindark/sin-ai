@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
   packages: write
+  security-events: write
+
+env:
+  SCAN_IMAGE: sin-ai:scan
+  TRIVY_VERSION: v0.76.1
 
 concurrency:
   group: release-${{ github.ref }}
@@ -38,13 +43,47 @@ jobs:
             type=raw,value=main-{{sha}},enable={{is_default_branch}},priority=700
             type=ref,event=branch
             type=sha
-      - uses: docker/build-push-action@v7
+      - name: Build the image for scanning
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: docker/app/Dockerfile
           build-args: APP_VERSION=${{ steps.meta.outputs.version }}
-          push: ${{ github.event_name != 'pull_request' }}
+          load: true
+          tags: ${{ env.SCAN_IMAGE }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max,ignore-error=true
+      - name: Report HIGH and CRITICAL vulnerabilities to code scanning
+        if: github.event_name != 'pull_request'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.SCAN_IMAGE }}
+          version: ${{ env.TRIVY_VERSION }}
+          severity: HIGH,CRITICAL
+          format: sarif
+          output: trivy-results.sarif
+      - if: github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-image
+      - name: Fail on CRITICAL vulnerabilities that have a fix
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.SCAN_IMAGE }}
+          version: ${{ env.TRIVY_VERSION }}
+          skip-setup-trivy: ${{ github.event_name != 'pull_request' }}
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Push the scanned image
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/app/Dockerfile
+          build-args: APP_VERSION=${{ steps.meta.outputs.version }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
-          cache-to: type=gha,mode=max,ignore-error=true

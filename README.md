@@ -110,7 +110,7 @@ Throwaway credentials are written in the workflow `env:`; compose needs every `$
 ### Dependency updates
 
 - Dependabot (`.github/dependabot.yml`) opens weekly version-update PRs into `dev` for GitHub Actions, Gradle (`gradle/libs.versions.toml`), the `docker/app/Dockerfile` base images and the images in `docker/docker-compose.yml` and `deploy/compose.yml`. Minor and patch updates are grouped into one PR per ecosystem. Dependabot reads the config from `main` only, so a change to it takes effect after the `dev` -> `main` merge.
-- Ignored: JDK and Postgres majors (a Postgres major needs a data migration) and the MinIO AIStor images (license-bound `RELEASE.<timestamp>` tags). Upgrade those by hand.
+- Ignored: JDK and Postgres majors (a Postgres major needs a data migration), the MinIO AIStor images (license-bound `RELEASE.<timestamp>` tags), MinIO client majors (API changes) and `opentelemetry-logback-appender-1.0` (its version must match the OpenTelemetry SDK that Spring Boot manages, so bump it together with Boot). Upgrade those by hand.
 - Dependabot alerts are on; automatic security-update PRs are off, because they always target `main`. Fix an alert through a normal PR into `dev`.
 - Dependabot runs get no Actions secrets, so `MINIO_LICENSE` is also stored as a Dependabot secret (see Secrets).
 - Review a Dependabot PR like any other: wait for `test`, read the release notes for minor bumps, then squash into `dev`.

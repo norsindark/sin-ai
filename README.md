@@ -107,6 +107,14 @@ feature branch --PR (squash)--> dev --PR (merge commit)--> main --tag vX.Y.Z--> 
 
 Throwaway credentials are written in the workflow `env:`; compose needs every `${X:?}` set, even for services that are not started. `MINIO_LICENSE` is the only repository secret. Pull requests from forks get no secrets, so they skip the infrastructure steps.
 
+### Dependency updates
+
+- Dependabot (`.github/dependabot.yml`) opens weekly version-update PRs into `dev` for GitHub Actions, Gradle (`gradle/libs.versions.toml`), the `docker/app/Dockerfile` base images and the images in `docker/docker-compose.yml` and `deploy/compose.yml`. Minor and patch updates are grouped into one PR per ecosystem. Dependabot reads the config from `main` only, so a change to it takes effect after the `dev` -> `main` merge.
+- Ignored: JDK and Postgres majors (a Postgres major needs a data migration) and the MinIO AIStor images (license-bound `RELEASE.<timestamp>` tags). Upgrade those by hand.
+- Dependabot alerts are on; automatic security-update PRs are off, because they always target `main`. Fix an alert through a normal PR into `dev`.
+- Dependabot runs get no Actions secrets, so `MINIO_LICENSE` is also stored as a Dependabot secret (see Secrets).
+- Review a Dependabot PR like any other: wait for `test`, read the release notes for minor bumps, then squash into `dev`.
+
 ### Versioning and releases
 
 Versions follow SemVer `vMAJOR.MINOR.PATCH` and come from git tags only.
@@ -149,11 +157,11 @@ Release steps:
 
 | Name | Scope | Used by |
 |---|---|---|
-| `MINIO_LICENSE` | repository | CI, deploy rehearsal |
+| `MINIO_LICENSE` | repository (Actions and Dependabot) | CI, deploy rehearsal |
 | `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_KNOWN_HOSTS` | environment `production` | Deploy |
 | `GITHUB_TOKEN` | automatic | Release (push to ghcr.io) |
 
-Add one in Settings > Secrets and variables > Actions, or without printing the value: `grep '^NAME=' file | cut -d= -f2- | tr -d '\r' | gh secret set NAME --repo norsindark/sin-ai`. Never commit a real `.env`; only `.env.example` files are tracked.
+Add one in Settings > Secrets and variables > Actions (or > Dependabot), or without printing the value: `grep '^NAME=' file | cut -d= -f2- | tr -d '\r' | gh secret set NAME --repo norsindark/sin-ai` (add `--app dependabot` for the Dependabot copy). Never commit a real `.env`; only `.env.example` files are tracked.
 
 ### Troubleshooting
 

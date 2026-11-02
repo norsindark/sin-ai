@@ -21,6 +21,12 @@ updates:
     groups:
       gradle-minor-patch:
         update-types: [minor, patch]
+    ignore:
+      # Must match the OpenTelemetry SDK that Spring Boot manages; bump it together with Boot.
+      - dependency-name: io.opentelemetry.instrumentation:opentelemetry-logback-appender-1.0
+      # MinIO 9 changes the client API; upgrade by hand.
+      - dependency-name: io.minio:minio
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: docker
     directory: /docker/app

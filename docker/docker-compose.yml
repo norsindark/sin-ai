@@ -118,7 +118,7 @@ services:
     restart: unless-stopped
 
   whisper-init:
-    image: curlimages/curl:8.10.1
+    image: curlimages/curl:8.23.0
     profiles: [ai]
     entrypoint: ["/bin/sh", "-c", "curl -fsS --retry 30 --retry-delay 2 --retry-connrefused --max-time 3600 -X POST \"http://whisper:8000/v1/models/$${WHISPER_MODEL}\""]
     environment:
@@ -129,7 +129,7 @@ services:
     restart: "no"
 
   ollama:
-    image: ollama/ollama:0.40.8
+    image: ollama/ollama:0.40.13
     profiles: [ai]
     env_file: ./ai/ai.env
     ports:
@@ -145,7 +145,7 @@ services:
     restart: unless-stopped
 
   observability:
-    image: grafana/otel-lgtm:0.36.0
+    image: grafana/otel-lgtm:0.38.1
     profiles: [observability]
     ports:
       - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
@@ -159,7 +159,7 @@ services:
     restart: unless-stopped
 
   ollama-init:
-    image: ollama/ollama:0.40.8
+    image: ollama/ollama:0.40.13
     profiles: [ai]
     entrypoint: ["/bin/sh", "-c", "ollama pull $${OLLAMA_MODEL}"]
     environment:

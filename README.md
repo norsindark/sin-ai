@@ -109,11 +109,7 @@ Throwaway credentials are written in the workflow `env:`; compose needs every `$
 
 ### Dependency updates
 
-- Dependabot (`.github/dependabot.yml`) opens weekly version-update PRs into `dev` for GitHub Actions, Gradle (`gradle/libs.versions.toml`), the `docker/app/Dockerfile` base images and the images in `docker/docker-compose.yml` and `deploy/compose.yml`. Minor and patch updates are grouped into one PR per ecosystem. Dependabot reads the config from `main` only, so a change to it takes effect after the `dev` -> `main` merge.
-- Ignored: JDK and Postgres majors (a Postgres major needs a data migration), the MinIO AIStor images (license-bound `RELEASE.<timestamp>` tags), MinIO client majors (API changes) and `opentelemetry-logback-appender-1.0` (its version must match the OpenTelemetry SDK that Spring Boot manages, so bump it together with Boot). Upgrade those by hand.
-- Dependabot alerts are on; automatic security-update PRs are off, because they always target `main`. Fix an alert through a normal PR into `dev`.
-- Dependabot runs get no Actions secrets, so `MINIO_LICENSE` is also stored as a Dependabot secret (see Secrets).
-- Review a Dependabot PR like any other: wait for `test`, read the release notes for minor bumps, then squash into `dev`.
+There are no automated update PRs. Bump dependencies (`gradle/libs.versions.toml`), base images, compose images and action versions by hand through a normal PR into `dev`. Keep JDK and Postgres majors (a Postgres major needs a data migration), the MinIO AIStor images and MinIO client majors as deliberate upgrades, and bump `opentelemetry-logback-appender-1.0` together with Spring Boot (its version must match the OpenTelemetry SDK that Boot manages).
 
 ### Versioning and releases
 
@@ -153,7 +149,7 @@ The Release job builds the image locally, scans it with [Trivy](https://trivy.de
 - The job fails on CRITICAL vulnerabilities that have a fix (`ignore-unfixed`); unfixable ones would block every release without anything to do about them. Pull requests run the same gate.
 - Pushes to `main` and tags also upload HIGH and CRITICAL findings to Security > Code scanning (category `trivy-image`).
 - Fix a finding by bumping the dependency or the base image tag. Only when that is impossible, add the CVE to a `.trivyignore` file in the repository root with a reason and an expiry: `CVE-2026-12345 exp:2027-01-31` on its own line, the reason in a `#` comment above it.
-- `aquasecurity/trivy-action` is pinned to a full commit SHA because its tags were hijacked in March 2026 ([GHSA-69fq-xp46-6x23](https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23)). Dependabot updates that SHA; the Trivy binary version (`TRIVY_VERSION` in `release.yml`) is bumped by hand.
+- `aquasecurity/trivy-action` is pinned to a full commit SHA because its tags were hijacked in March 2026 ([GHSA-69fq-xp46-6x23](https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23)). Bump that SHA and the Trivy binary version (`TRIVY_VERSION` in `release.yml`) by hand.
 
 ### Deploy
 
@@ -166,11 +162,11 @@ The Release job builds the image locally, scans it with [Trivy](https://trivy.de
 
 | Name | Scope | Used by |
 |---|---|---|
-| `MINIO_LICENSE` | repository (Actions and Dependabot) | CI, deploy rehearsal |
+| `MINIO_LICENSE` | repository | CI, deploy rehearsal |
 | `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY`, `VPS_KNOWN_HOSTS` | environment `production` | Deploy |
 | `GITHUB_TOKEN` | automatic | Release (push to ghcr.io) |
 
-Add one in Settings > Secrets and variables > Actions (or > Dependabot), or without printing the value: `grep '^NAME=' file | cut -d= -f2- | tr -d '\r' | gh secret set NAME --repo norsindark/sin-ai` (add `--app dependabot` for the Dependabot copy). Never commit a real `.env`; only `.env.example` files are tracked.
+Add one in Settings > Secrets and variables > Actions, or without printing the value: `grep '^NAME=' file | cut -d= -f2- | tr -d '\r' | gh secret set NAME --repo norsindark/sin-ai`. Never commit a real `.env`; only `.env.example` files are tracked.
 
 ### Troubleshooting
 

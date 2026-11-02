@@ -146,6 +146,15 @@ Release steps:
 - Pre-releases such as `v1.3.0-rc.1` are built too, without the short `1.3` tag.
 - The image is public like the repository and contains no secrets; credentials come from the server `.env` at runtime.
 
+### Image scan
+
+The Release job builds the image locally, scans it with [Trivy](https://trivy.dev) and only then pushes it, so a vulnerable image never reaches ghcr.io.
+
+- The job fails on CRITICAL vulnerabilities that have a fix (`ignore-unfixed`); unfixable ones would block every release without anything to do about them. Pull requests run the same gate.
+- Pushes to `main` and tags also upload HIGH and CRITICAL findings to Security > Code scanning (category `trivy-image`).
+- Fix a finding by bumping the dependency or the base image tag. Only when that is impossible, add the CVE to a `.trivyignore` file in the repository root with a reason and an expiry: `CVE-2026-12345 exp:2027-01-31` on its own line, the reason in a `#` comment above it.
+- `aquasecurity/trivy-action` is pinned to a full commit SHA because its tags were hijacked in March 2026 ([GHSA-69fq-xp46-6x23](https://github.com/aquasecurity/trivy/security/advisories/GHSA-69fq-xp46-6x23)). Dependabot updates that SHA; the Trivy binary version (`TRIVY_VERSION` in `release.yml`) is bumped by hand.
+
 ### Deploy
 
 - Actions > Deploy > Run workflow > version (`0.1.0` or `main-<sha7>`). The `precheck` job validates the version and checks that the image exists, so a typo fails before anyone is asked to approve. The `deploy` job then waits for approval of the `production` environment (an environment gate blocks the whole job before its first step), uploads the deploy bundle over SSH and runs `deploy/deploy.sh` (pull, database backup, start, healthcheck, history).

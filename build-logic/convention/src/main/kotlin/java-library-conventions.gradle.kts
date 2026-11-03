@@ -2,6 +2,7 @@ import org.springframework.boot.gradle.plugin.SpringBootPlugin
 
 plugins {
     `java-library`
+    jacoco
     id("io.spring.dependency-management")
 }
 
@@ -35,6 +36,14 @@ dependencies {
     testRuntimeOnly(catalog.findLibrary("junit-platform-launcher").get())
 }
 
+jacoco {
+    toolVersion = catalog.findVersion("jacoco").get().requiredVersion
+}
+
 tasks.withType<Test> {
     useJUnitPlatform()
+}
+
+tasks.named<Test>("test") {
+    finalizedBy(tasks.named("jacocoTestReport"))
 }

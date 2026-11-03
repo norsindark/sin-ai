@@ -8,6 +8,8 @@ springdoc = "3.2.0"
 opentelemetry-logback-appender = "2.28.1-alpha"
 opencc4j = "1.14.0"
 bouncycastle = "1.86"
+archunit = "1.5.1"
+jacoco = "0.8.16"
 
 [libraries]
 commons-lang3 = { module = "org.apache.commons:commons-lang3" }
@@ -43,6 +45,7 @@ minio = { module = "io.minio:minio", version.ref = "minio" }
 bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
 opencc4j = { module = "com.github.houbb:opencc4j", version.ref = "opencc4j" }
+archunit-junit5 = { module = "com.tngtech.archunit:archunit-junit5", version.ref = "archunit" }
 
 [plugins]
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }

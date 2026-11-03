@@ -1,5 +1,6 @@
 plugins {
     id("spring-boot-conventions")
+    `jacoco-report-aggregation`
 }
 
 springBoot {
@@ -25,4 +26,5 @@ dependencies {
     testImplementation(libs.spring.boot.starter.data.jpa)
     testImplementation(libs.minio)
     testImplementation(libs.spring.boot.starter.security.oauth2.resource.server.test)
+    testImplementation(libs.archunit.junit5)
 }
